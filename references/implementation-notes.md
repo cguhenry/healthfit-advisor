@@ -60,10 +60,42 @@ Rationale:
 - `projects/healthfit-advisor/` remains the internal planning/progress workspace.
 - If public-facing docs need to diverge from internal notes, put public docs under this skill directory and keep private planning files in `projects/`.
 
+## Phase 2 Round 1 Scope
+
+The first Phase 2 implementation is `scripts/menu_advisor.py`.
+
+It intentionally avoids external food database dependencies. Recommendations are generated from curated templates for common Taiwan-relevant contexts:
+
+- convenience store
+- buffet / self-serve lunchbox
+- restaurant
+- chain restaurant
+- home cooking
+
+Inputs:
+
+- `cuisine_type`: `taiwanese`, `japanese`, `western`, `korean`, `southeast_asian`, `any`
+- `eating_location`: `home`, `convenience_store`, `buffet`, `chain_restaurant`, `restaurant`
+- `meal_type`: `breakfast`, `lunch`, `dinner`, `snack`
+- `daily_calorie_target` or `remaining_daily_calories`
+- optional `protein_target_g` and `protein_consumed_g`
+
+Output:
+
+- primary recommendation
+- alternative options
+- estimated calories/macros
+- rationale
+- avoid list
+- warnings
+
+Fallback rule:
+
+When cuisine and location cannot both be matched, preserve the cuisine preference before falling back to generic options.
+
 ## Deferred To Later Phases
 
 - 台灣食品資料庫匯入
 - USDA 整合
-- 菜單推薦
 - 圖像辨識
 - 日報/週報與排程

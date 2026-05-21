@@ -10,6 +10,7 @@ It provides:
 - macro target generation
 - local SQLite persistence for the active plan
 - high-risk screening flags for minors, pregnancy, chronic disease, and eating disorder risk
+- curated meal recommendations for common eating contexts
 
 This is a Phase 1 engineering approximation. It is not a full NIH Body Weight Planner solver and does not provide medical advice.
 
@@ -56,6 +57,12 @@ Format an intake result or plan JSON:
 python3 scripts/plan_formatter.py result.json
 ```
 
+Run a Phase 2 menu recommendation:
+
+```bash
+python3 scripts/menu_advisor.py examples/menu_request.json
+```
+
 ## Intake Payload
 
 Minimum fields:
@@ -93,13 +100,13 @@ Implemented:
 - reusable intake flow
 - active plan persistence
 - user-facing plan formatter
+- curated menu advisor for Phase 2 Round 1
 - unit tests and basic skill validation
 
 Deferred:
 
 - full NIH/Hall dynamic solver
 - Taiwan and USDA food database imports
-- menu recommendation
 - food image analysis
 - daily and weekly report generation
 
