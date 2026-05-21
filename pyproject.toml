@@ -1,0 +1,15 @@
+[project]
+name = "healthfit-advisor"
+version = "0.1.0"
+description = "OpenClaw skill for safe Phase 1 health and body-weight planning workflows."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Henry" }]
+dependencies = []
+
+[tool.setuptools]
+py-modules = []
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

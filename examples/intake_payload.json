@@ -1,0 +1,12 @@
+{
+  "display_name": "Henry",
+  "gender": "M",
+  "age": 30,
+  "height_cm": 170,
+  "current_weight_kg": 85,
+  "activity_level": "light",
+  "goal_weight_kg": 78,
+  "target_weeks": 16,
+  "ethnicity": "east_asian",
+  "risk_flags": []
+}

@@ -1,0 +1,5 @@
+interface:
+  display_name: "HealthFit Advisor"
+  short_description: "健康減重、增肌與熱量規劃技能"
+  default_prompt: "Use $healthfit-advisor to build or refine a safe weight-loss, maintenance, or muscle-gain plan."
+
