@@ -16,5 +16,55 @@
       "蛋白質目標至少每公斤 1.8g",
       "避免過高盈餘"
     ]
+  },
+  {
+    "id": "menu_001",
+    "prompt": "我想吃台式料理，在自助餐吃午餐，今天還有700卡可以吃",
+    "assertions": [
+      "回傳狀態為 ready",
+      "cuisine_type 為 taiwanese",
+      "eating_location 為 buffet",
+      "meal_type 為 lunch",
+      "包含 recommendation 與 formatted 欄位",
+      "formatted 含熱量估算與巨量營養素"
+    ]
+  },
+  {
+    "id": "menu_002",
+    "prompt": "我中午不知道要吃什麼，給我建議",
+    "assertions": [
+      "回傳狀態為 clarification_needed",
+      "prompt 包含詢問料理類型或地點的問題",
+      "state 記錄已知資訊"
+    ]
+  },
+  {
+    "id": "menu_003",
+    "prompt": "我要吃日式，在餐廳吃，晚餐",
+    "assertions": [
+      "cuisine_type 為 japanese",
+      "eating_location 為 restaurant",
+      "meal_type 為 dinner",
+      "包含替代選項與避免項目"
+    ]
+  },
+  {
+    "id": "menu_004",
+    "prompt": "我沒有偏好，想在超商買，點心，剩250卡",
+    "assertions": [
+      "cuisine_type 為 any（no_preference 正常化）",
+      "eating_location 為 convenience_store",
+      "meal_type 為 snack",
+      "status 為 ready"
+    ]
+  },
+  {
+    "id": "menu_005",
+    "prompt": "我想吃外星料理，在餐廳吃午餐",
+    "assertions": [
+      "回傳 clarification_needed",
+      "field 為 cuisine_type",
+      "prompt 說明無法識別該料理類型"
+    ]
   }
 ]

@@ -12,7 +12,7 @@ It provides:
 - high-risk screening flags for minors, pregnancy, chronic disease, and eating disorder risk
 - curated meal recommendations for common eating contexts
 
-This is a Phase 1 engineering approximation. It is not a full NIH Body Weight Planner solver and does not provide medical advice.
+This is a Phase 1-2 engineering build. It provides safety-constrained planners and curated meal recommendations. It is not a full NIH Body Weight Planner solver and does not provide medical advice.
 
 ## Repository Layout
 
@@ -57,10 +57,21 @@ Format an intake result or plan JSON:
 python3 scripts/plan_formatter.py result.json
 ```
 
-Run a Phase 2 menu recommendation:
+Run a Phase 2 menu recommendation via the dialogue flow:
 
 ```bash
-python3 scripts/menu_advisor.py examples/menu_request.json
+# full automated recommendation
+python3 scripts/diet_dialogue.py --cuisine 日式 --location 餐廳 --meal 晚餐 --calories 1800
+
+# or with remaining calories
+python3 scripts/diet_dialogue.py --cuisine any --location 超商 --meal 點心 --remaining-calories 250
+
+# see if clarification is needed (partial input)
+python3 scripts/diet_dialogue.py --cuisine 台式
+
+# JSON output for agent consumption
+python3 scripts/diet_dialogue.py --cuisine 台式 --location 自助餐 --meal 午餐 \
+  --remaining-calories 600 --format json
 ```
 
 ## Intake Payload
@@ -90,9 +101,9 @@ Allowed values:
 
 HealthFit Advisor automatically constrains aggressive deficits or surpluses and flags high-risk contexts. If `requires_professional_review` is true, the result should not be presented as an actionable medical or nutrition plan.
 
-## Phase 1 Scope
+## Phase Boundaries
 
-Implemented:
+Implemented (Phase 1-2):
 
 - profile management
 - calorie and macro target estimation
@@ -100,14 +111,15 @@ Implemented:
 - reusable intake flow
 - active plan persistence
 - user-facing plan formatter
-- curated menu advisor for Phase 2 Round 1
+- curated menu recommendation engine
+- guided diet consultation dialogue tree
 - unit tests and basic skill validation
 
-Deferred:
+Deferred (Phase 3+):
 
 - full NIH/Hall dynamic solver
 - Taiwan and USDA food database imports
-- food image analysis
+- food image analysis (vision-agnostic)
 - daily and weekly report generation
 
 ## Validation

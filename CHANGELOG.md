@@ -1,14 +1,21 @@
 # Changelog
 
-## 0.2.0 - 2026-05-21
+## 0.2.0 - 2026-05-22
 
-Phase 2 Round 1:
+**Phase 2 complete: Diet Consultation Engine**
 
-- Added curated menu recommendation engine.
+- Added curated menu recommendation engine with 9 meal templates.
 - Added cuisine/location/meal type validation.
-- Added fallback behavior that preserves cuisine preference when location templates are unavailable.
-- Added menu request example and tests.
-- Updated skill docs for Phase 2 boundaries.
+- Added recommendation ranking with calorie/protein/sodium scoring.
+- Added fallback behavior preserving cuisine preference.
+- Added guided dialogue tree (`diet_dialogue.py`) with:
+  - Chinese/English keyword matching (ordered by specificity)
+  - Multi-turn `DialogueState` support
+  - Automatic clarification prompts for missing fields
+  - Handles `no_preference` gracefully
+- Added 9 diet dialogue tests and 5 eval cases.
+- Added menu request example.
+- Updated skill docs and implementation notes.
 
 ## 0.1.0 - 2026-05-21
 
