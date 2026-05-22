@@ -1,0 +1,31 @@
+{
+  "readable_items": [
+    {
+      "name": "烤雞腿便當",
+      "name_en": "Roasted chicken leg lunchbox",
+      "portion_size": "大",
+      "estimated_calories": 720,
+      "protein_g": 35,
+      "carb_g": 80,
+      "fat_g": 22,
+      "confidence": 0.88,
+      "source_note": "烤雞腿油脂較少，優於炸排骨"
+    },
+    {
+      "name": "麻辣牛肉麵",
+      "name_en": "Spicy beef noodle soup",
+      "portion_size": "大",
+      "estimated_calories": 850,
+      "protein_g": 28,
+      "carb_g": 110,
+      "fat_g": 25,
+      "confidence": 0.72,
+      "source_note": "勾芡湯底熱量較高"
+    }
+  ],
+  "recommended": ["烤雞腿便當"],
+  "avoid": ["麻辣牛肉麵"],
+  "combo_suggestion": "烤雞腿便當 + 青菜，控制在 750 kcal 內",
+  "overall_confidence": 0.78,
+  "nutrition_advice": "今日建議選烤雞腿便當，飯量減半以控制在目標熱量內。"
+}

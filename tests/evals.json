@@ -66,5 +66,43 @@
       "field 為 cuisine_type",
       "prompt 說明無法識別該料理類型"
     ]
+  },
+  {
+    "id": "vision_001",
+    "prompt": "上傳一張餐廳菜單照片",
+    "assertions": [
+      "vision_capability_check 回傳 supported=True（若模型支援）",
+      "build_llm_prompt(MENU) 回傳包含 system_prompt 與 user_message",
+      "parse_llm_response 可正確解析 LLM 的 JSON 回應",
+      "confidence >= 0.85 的項目不產生 low_confidence_warnings",
+      "confidence < 0.6 的項目自動寫入 low_confidence_warnings"
+    ]
+  },
+  {
+    "id": "vision_002",
+    "prompt": "上傳一張食物照片，請分析熱量",
+    "assertions": [
+      "build_llm_prompt(FOOD) 回傳包含 estimated_g、calories、macros 欄位要求",
+      "parse_llm_response 回傳 MealAnalysisResult.to_dict() 含 foods、total_nutrition",
+      "format_analysis_result 輸出含熱量、巨量營養素、confidence tier 圖示"
+    ]
+  },
+  {
+    "id": "vision_003",
+    "prompt": "上傳餐前和餐後照片，計算實際攝取",
+    "assertions": [
+      "build_llm_prompt(BEFORE_AFTER) 要求 consumed_pct 與 consumed_g",
+      "parse_llm_response 正確計算實際攝取量",
+      "leftover_description 被包含在 nutrition_advice 中"
+    ]
+  },
+  {
+    "id": "vision_004",
+    "prompt": "我用的是 gpt-4o-mini，可以分析圖片嗎？",
+    "assertions": [
+      "check('gpt-4o-mini') 回傳 supported=False",
+      "check('gpt-4o') 回傳 supported=True",
+      "fallback_message 說明如何切換到支援的模型"
+    ]
   }
 ]

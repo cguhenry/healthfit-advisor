@@ -1,21 +1,27 @@
 # Changelog
 
+## 0.3.0 - 2026-05-22
+
+**Phase 3 complete: Vision-agnostic food image analysis**
+
+- Added `scripts/vision_capability_check.py`:
+  - Substring-based model ID detection (vision vs non-vision)
+  - KNOWN_NONVISION checked FIRST to avoid substring collisions (e.g. gpt-4o-mini vs gpt-4o)
+  - `check()`, `require()`, `VisionNotSupportedError`
+  - CLI for manual testing
+- Added `scripts/food_analyzer.py`:
+  - Three analysis scenarios: MENU / FOOD / BEFORE_AFTER
+  - `build_llm_prompt()`: returns (system_prompt, user_message) for agent's multimodal LLM
+  - `parse_llm_response()`: parses LLM JSON → MealAnalysisResult dataclass
+  - `format_analysis_result()`: human-readable output with confidence tier icons
+  - Confidence tiers: HIGH ≥85%, MEDIUM 60–85%, LOW <60%
+  - Low-confidence items auto-flagged and warned
+- Added mock LLM response examples in `examples/mock_responses/`
+- Added 18 Phase 3 tests (48 total tests)
+- Added 4 Phase 3 eval cases (11 total)
+- Updated skill docs for Phase 3 boundaries
+
 ## 0.2.0 - 2026-05-22
-
-**Phase 2 complete: Diet Consultation Engine**
-
-- Added curated menu recommendation engine with 9 meal templates.
-- Added cuisine/location/meal type validation.
-- Added recommendation ranking with calorie/protein/sodium scoring.
-- Added fallback behavior preserving cuisine preference.
-- Added guided dialogue tree (`diet_dialogue.py`) with:
-  - Chinese/English keyword matching (ordered by specificity)
-  - Multi-turn `DialogueState` support
-  - Automatic clarification prompts for missing fields
-  - Handles `no_preference` gracefully
-- Added 9 diet dialogue tests and 5 eval cases.
-- Added menu request example.
-- Updated skill docs and implementation notes.
 
 ## 0.1.0 - 2026-05-21
 

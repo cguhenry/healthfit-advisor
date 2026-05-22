@@ -1,45 +1,50 @@
 # HealthFit Advisor Implementation Notes
 
-## Current Phase: Phase 2 Complete
+## Current Phase: Phase 3 Complete
 
-Phase 2 deliverables:
-- `scripts/menu_advisor.py` — curated recommendation engine
-- `scripts/diet_dialogue.py` — guided dialogue tree
+Phase 3 deliverables:
+- `scripts/vision_capability_check.py`
+- `scripts/food_analyzer.py`
 
-## Phase 2 Architecture
+## Phase 3 Architecture
 
-### menu_advisor.py
+### vision_capability_check.py
 
-Provides `MenuAdvisor.recommend_meal()` with:
-- Input: cuisine_type, eating_location, meal_type, calorie/protein targets
-- Output: primary recommendation, alternatives, avoid list, rationale, warnings
-- Scoring: calorie fit + (protein shortfall × 1.5) + (sodium penalty × 0.35)
-- Fallback cascade: exact cuisine+location → cuisine only → location only → any
+Design: does NOT call any Vision API. Detects via model ID substring matching.
 
-Curated templates cover:
-- convenience_store: 3 templates (lunch/dinner, breakfast, snack)
-- buffet: 1 template (lunch/dinner)
-- restaurant: 3 templates (japanese, korean, southeast asian)
-- chain_restaurant: 1 template (western)
-- home: 1 template (lunch/dinner)
+Priority:
+1. KNOWN_NONVISION list (checked FIRST to avoid `gpt-4o-mini` being caught by `gpt-4o`)
+2. KNOWN_VISION_SUBSTRINGS
+3. Unknown → conservative NOT supported
 
-### diet_dialogue.py
+Key exports:
+- `check(model_id)` → VisionCheckResult
+- `require(model_id)` → raises VisionNotSupportedError if not supported
+- `VisionNotSupportedError` exception class
 
-Agent-facing conversation flow:
-- Accepts cuisine/location/meal inputs (any combination)
-- Returns either `ready` (with recommendation) or `clarification_needed` (with prompt for next missing field)
-- Supports `DialogueState` object for multi-turn conversation continuity
-- Chinese/English keyword matching with specificity ordering
-- `no_preference` → `any` for cuisine, `convenience_store` for location
+### food_analyzer.py — Vision-Agnostic Design
 
-### Data Flow
+The skill does NOT call any Vision API directly. Instead:
 
 ```
-User text → diet_dialogue.build_recommendation()
-  ├─ clarification_needed → agent asks next question
-  └─ ready → MenuAdvisor.recommend_meal()
-              └─ Recommendation (with formatted text)
+Agent framework (current LLM, e.g. Claude 3 Sonnet)
+    ↓ [sends prompt from build_llm_prompt() + image]
+LLM returns structured JSON
+    ↓
+Agent passes JSON to parse_llm_response()
+    ↓
+MealAnalysisResult → format_analysis_result() → human-readable text
 ```
+
+Three scenarios:
+1. `MENU` — OCR + parse + filter against calorie target + recommended/avoid lists
+2. `FOOD` — identify foods + estimate portions + calculate nutrition + remaining calories
+3. `BEFORE_AFTER` — compare pre/post photos + consumed_pct + actual intake calculation
+
+Confidence tiers:
+- HIGH ≥ 85%: direct value
+- MEDIUM 60–85%: range estimate + note
+- LOW < 60%: flagged in `low_confidence_warnings`, user prompted to confirm manually
 
 ## Design Corrections From Plan Review
 
@@ -50,6 +55,7 @@ User text → diet_dialogue.build_recommendation()
 3. SQLite is the dev default; PostgreSQL is deploy-time only.
 4. Medical safety guardrails are front-loaded.
 5. Phase 2 curated templates are an intentional simplification before Taiwan/USDA food DB import.
+6. Vision is handled by the agent's own LLM, not by this skill calling a Vision API.
 
 ## Phase 1 Scope
 
@@ -70,10 +76,18 @@ User text → diet_dialogue.build_recommendation()
 - Multi-turn dialogue state support
 - Menu request example and tests
 
+## Phase 3 Scope
+
+- Vision capability check (model ID-based, no Vision API calls)
+- Three analysis scenarios: menu / food / before_after
+- Structured LLM prompt templates
+- Response parsing with confidence tiers
+- Human-readable output formatting
+- 48 total unit tests
+
 ## Deferred To Later Phases
 
 - Taiwan and USDA food database import
-- Food image analysis (vision-agnostic)
 - Daily/weekly report generation
 - Exercise integration
 - Menstrual cycle adjustments
