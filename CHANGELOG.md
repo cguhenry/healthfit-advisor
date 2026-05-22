@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.0 - 2026-05-22
+
+**Phase 4: Calorie tracking, DB persistence, and history comparison**
+
+- Added `scripts/calorie_tracker.py`:
+  - `log_meal_analysis()`: writes food analysis results (Phase 3) into `food_logs` table
+  - `upsert_daily_summary()`: recalculates and upserts `daily_summaries` from food_logs
+  - `get_daily_summary()`: reads existing daily summary by date
+  - `get_history_comparison()`: compares today vs yesterday, last week, 7-day trailing average, and plan start
+  - `get_recent_trend()`: rolling N-day per-day calorie/protein totals (with zero-fill for missing days)
+  - `get_calorie_progress()`: calorie/protein snapshot with meal breakdown, reads target from active plan
+  - `format_progress()` and `format_comparison()`: human-readable output
+  - CLI interface: `log`, `summary`, `compare`, `trend`, `progress` subcommands
+- Added 31 Phase 4 tests (71 total tests)
+- Updated SKILL.md, CHANGELOG.md, PHASE_PROGRESS.md
+
 ## 0.3.0 - 2026-05-22
 
 **Phase 3 complete: Vision-agnostic food image analysis**
