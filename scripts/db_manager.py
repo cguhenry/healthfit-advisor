@@ -74,6 +74,15 @@ class DBManager:
         with closing(self.connect()) as conn:
             return conn.execute(query, tuple(params)).fetchone()
 
+    def fetchone(self, query: str, params: Iterable[object] = ()) -> Optional[sqlite3.Row]:
+        """Alias for fetch_one, for sqlite3-idiomatic usage in newer modules."""
+        return self.fetch_one(query, params)
+
+    def fetchall(self, query: str, params: Iterable[object] = ()) -> list[sqlite3.Row]:
+        with closing(self.connect()) as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+            return list(rows) if rows else []
+
     def execute(self, query: str, params: Iterable[object] = ()) -> None:
         with closing(self.connect()) as conn:
             with conn:

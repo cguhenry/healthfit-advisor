@@ -89,3 +89,75 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
     report_text TEXT,
     UNIQUE(user_id, week_start_date)
 );
+
+-- Phase 6: 台灣FDA + USDA 食品營養資料庫快取
+CREATE TABLE IF NOT EXISTS food_nutrition_cache (
+    cache_id       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    source         VARCHAR(10)     NOT NULL,          -- 'TW_FDA' | 'USDA'
+    food_id        VARCHAR(50)     NOT NULL,          -- 整合編號 或 USDA fdcId
+    food_name      VARCHAR(200)    NOT NULL,
+    food_name_en   VARCHAR(200),
+    category       VARCHAR(100),                     -- 食品分類
+    calories_100g  NUMERIC(7,1),                     -- 每100g熱量 (kcal)
+    protein_100g   NUMERIC(6,1),                     -- 每100g蛋白質 (g)
+    carb_100g      NUMERIC(6,1),                     -- 每100g碳水 (g)
+    fat_100g       NUMERIC(6,1),                     -- 每100g脂肪 (g)
+    fiber_100g     NUMERIC(6,1),                     -- 每100g膳食纖維 (g)
+    sodium_100g    NUMERIC(7,1),                     -- 每100g鈉 (mg)
+    serving_size_g NUMERIC(7,1),                     -- 建議份量 (g)
+    raw_json       TEXT,                             -- 原始回應 (除錯用)
+    fetched_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(source, food_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_food_cache_name  ON food_nutrition_cache(food_name);
+CREATE INDEX IF NOT EXISTS idx_food_cache_source ON food_nutrition_cache(source);
+CREATE INDEX IF NOT EXISTS idx_food_cache_category ON food_nutrition_cache(category);
+
+-- Phase 6: 運動記錄
+CREATE TABLE IF NOT EXISTS exercise_logs (
+    log_id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id         TEXT REFERENCES users(user_id),
+    log_date        DATE NOT NULL,
+    exercise_type   VARCHAR(30)     NOT NULL,  -- 'cardio' | 'strength' | 'hiit' | 'yoga' | 'other'
+    activity_name   VARCHAR(100),
+    duration_min    INTEGER,
+    intensity       VARCHAR(10),               -- 'light' | 'moderate' | 'vigorous'
+    calories_burned NUMERIC(7,1),
+    note            TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, log_date, activity_name)
+);
+
+-- Phase 6: 動態熱量配額（運動後調整）
+CREATE TABLE IF NOT EXISTS daily_calorie_ledger (
+    ledger_id       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id         TEXT REFERENCES users(user_id),
+    ledger_date     DATE NOT NULL,
+    base_target     INTEGER,                   -- 原始每日目標（来自 weight_plans）
+    exercise_cal    INTEGER DEFAULT 0,         -- 運動消耗熱量
+    adjusted_target INTEGER,                   -- base_target + exercise_cal
+    UNIQUE(user_id, ledger_date)
+);
+
+-- Phase 6: 月經週期追蹤（使用者自填）
+CREATE TABLE IF NOT EXISTS menstrual_logs (
+    log_id      TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id     TEXT REFERENCES users(user_id),
+    period_start DATE NOT NULL,
+    cycle_length INTEGER,                      -- 天數（用於計算下次預估）
+    note        TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, period_start)
+);
+
+-- Phase 6: 健康警示日誌
+CREATE TABLE IF NOT EXISTS health_alerts (
+    alert_id    TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id     TEXT REFERENCES users(user_id),
+    alert_type  VARCHAR(50)     NOT NULL,   -- 'low_calorie_3day' | 'rapid_weight_loss' | 'protein_deficiency' | 'missing_log_5day'
+    severity    VARCHAR(10)     NOT NULL,  -- 'info' | 'warning' | 'critical'
+    message     TEXT,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    acknowledged BOOLEAN DEFAULT FALSE
+);

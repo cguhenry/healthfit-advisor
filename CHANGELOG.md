@@ -1,5 +1,83 @@
 # Changelog
 
+## 0.6.0 - 2026-05-23
+
+**Phase 6: Exercise tracking, health alerts, GI guide, menstrual tracker, meal planner & notification completion**
+
+- Added `scripts/exercise_tracker.py`:
+  - MET-based calorie estimation from Compendium of Physical Activities (75+ activity-MET pairs)
+  - `log_exercise()`: write/accumulate exercise sessions to `exercise_logs`
+  - `adjust_daily_calorie_target()`: dynamic quota adjustment by goal type (loss:50%, gain:100%, maintain:75% eat-back)
+  - `daily_calorie_ledger` persistence with upsert
+  - Chinese/English intensity normalization and auto-type classification
+  - CLI: `log`, `status`, `adjust`, `met` subcommands
+- Added `scripts/health_alerts.py`:
+  - 7 alert types: low_calorie_streak (3+ days < safe floor), rapid_weight_loss (>1.5kg/week), protein_deficiency, missing_logs (5+ days), plateau (3+ weeks no change), binge_day (>50% over target), excessive_exercise (>800 kcal burn)
+  - `run_all_checks()` with 3-day dedup window
+  - Severity tiers: info/warning/critical with emoji icons
+  - DB persistence with acknowledge workflow
+  - CLI: `check`, `list`, `ack` subcommands
+- Added `scripts/gi_guide.py`:
+  - 75-food GI database (University of Sydney values)
+  - `classify_food()`: classify foods into low/medium/high GI tiers
+  - `recommend_swap()`: high→low GI alternatives
+  - `get_meal_strategy()`: phase-specific strategies (breakfast/lunch/dinner/snack/pre-workout/post-workout)
+  - CLI: `classify`, `swap`, `strategy`, `list` subcommands
+- Added `scripts/menstrual_tracker.py`:
+  - 5-phase cycle model: menstruation/follicular/ovulation/luteal/premenstrual
+  - BMR adjustments: baseline (1.00) to luteal (+7%) based on Davidsen et al. (2007)
+  - `adjust_calorie_target()`: phase-aware calorie adjustment
+  - `log_period_start()`: DB persistence with customizable cycle length
+  - Phase-specific nutrition advice (6 phases)
+  - CLI: `log-period`, `current-phase`, `adjust` subcommands
+- Added `scripts/meal_planner.py`:
+  - 7-day meal plan generator (3 cuisines × 3 preference profiles = 9 templates)
+  - Calorie-aware distribution (25/35/35/5 balanced, high_protein, light options)
+  - Automatic shopping list from meal plan
+  - Rotating variety across days
+  - CLI: `plan` subcommand
+- Updated `scripts/scoring_engine.py`:
+  - `run_daily_scoring()` now reads daily_calorie_ledger for exercise-adjusted targets
+  - Exercise bonus (+5) when exercise is logged
+- Updated `scripts/notification_scheduler.py`:
+  - Discord webhook delivery (_deliver_discord) via DISCORD_WEBHOOK_URL
+  - LINE Messaging API delivery (_deliver_line) via LINE_CHANNEL_ACCESS_TOKEN
+  - Dry-run support via HEALTHFIT_DRY_RUN env var
+- Updated `scripts/db_manager.py`:
+  - Added `fetchone()` and `fetchall()` convenience methods
+- Updated `scripts/db_schema.sql`:
+  - New tables: exercise_logs, daily_calorie_ledger, menstrual_logs, health_alerts
+  - Added UNIQUE constraint on menstrual_logs(user_id, period_start)
+- Added test modules:
+  - `tests/test_exercise_tracker.py`: 36 tests (MET lookup, calorie estimation, type classification, DB, and calorie adjustment)
+  - `tests/test_health_alerts.py`: 43 tests (all alert types, persistence, format, full pipeline)
+  - `tests/test_gi_guide.py`: 26 tests (classification, swaps, strategies, data integrity)
+  - `tests/test_meal_planner.py`: 31 tests (generation, variety, shopping list, template integrity)
+  - `tests/test_menstrual_tracker.py`: 31 tests (phase calculation, calorie adjustment, DB persistence)
+  - Total: **284 tests** all passing
+- Updated SKILL.md, README.md, CHANGELOG.md, PHASE_PROGRESS.md
+
+**Phase 5: Daily & weekly scoring and report generation**
+
+- Added `scripts/scoring_engine.py`:
+  - `score_daily()`: 100-point base scoring with deductions for calorie over/under, protein deficiency/excess, fiber, sodium, refined sugar, and missing meals
+  - `score_weekly()`: weighted scoring (50% daily avg + 20% weight trend + 15% diversity + 15% completeness)
+  - `get_daily_nutrition()`: aggregates food_logs per day (excluding ___MEAL_TOTAL___)
+  - `run_daily_scoring()`: end-to-end pipeline (aggregate → score → persist)
+  - `persist_daily_score()`: writes score_events and updates daily_summaries
+  - `persist_weekly_score()`: upserts weekly_summaries
+  - Grade classification: ⭐優秀(90+) / 良好(75-89) / 及格(60-74) / 待加強(40-59) / ⚠️警示(<40)
+  - CLI interface: `score` and `weekly` subcommands
+- Added `scripts/report_generator.py`:
+  - `generate_daily_report()`: full daily report with plan summary, meal breakdown, score, history comparison, and recommendations
+  - `generate_weekly_report()`: full weekly report with 7-day score bar, calorie chart, weight change, score table, and next-week suggestions
+  - Text-based calorie trend charts and visual score bars
+  - CLI interface: `daily` and `weekly` subcommands
+- Added `tests/test_scoring_engine.py`: 43 tests (grade classification, daily scoring, weekly scoring, persistence, nutrition aggregation, full pipeline)
+- Added `tests/test_report_generator.py`: 20 tests (daily report, weekly report, edge cases)
+- Updated SKILL.md: Phase 5 boundaries
+- Updated CHANGELOG.md, PHASE_PROGRESS.md
+
 ## 0.4.0 - 2026-05-22
 
 **Phase 4: Calorie tracking, DB persistence, and history comparison**
