@@ -133,7 +133,7 @@ def run_smoke_test() -> dict[str, Any]:
         ledger = adjust_daily_calorie_target(db, user_id, "2026-05-24", intake_result["plan"]["daily_calorie_target"])
         log_period_start(db, user_id, "2026-05-01", 28)
         cycle_info = get_cycle_info(db, user_id)
-        gi_info = classify_food("白飯")
+        gi_info = classify_food("白米飯")
         meal_plan = generate_meal_plan(daily_calories=intake_result["plan"]["daily_calorie_target"], cuisine="台式")
         alerts = run_all_checks(db, user_id, "2026-05-24")
         result["steps"].append({
@@ -141,7 +141,7 @@ def run_smoke_test() -> dict[str, Any]:
             "status": "ok",
             "adjusted_target": ledger["adjusted_target"],
             "cycle_phase": cycle_info["phase"] if cycle_info else "",
-            "gi_classification": gi_info.get("gi_level"),
+            "gi_classification": gi_info.get("tier"),
             "meal_plan_days": len(meal_plan["plan"]),
             "alerts": len(alerts),
         })

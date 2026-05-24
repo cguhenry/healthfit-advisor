@@ -90,6 +90,20 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
     UNIQUE(user_id, week_start_date)
 );
 
+CREATE TABLE IF NOT EXISTS weekly_meal_plans (
+    plan_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id TEXT REFERENCES users(user_id),
+    week_start_date DATE NOT NULL,
+    cuisine VARCHAR(20),
+    meal_preference VARCHAR(20),
+    source VARCHAR(20) DEFAULT 'template',
+    plan_json TEXT NOT NULL,
+    shopping_list_json TEXT,
+    summary_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, week_start_date, source)
+);
+
 CREATE TABLE IF NOT EXISTS score_events (
     event_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     user_id TEXT REFERENCES users(user_id),
@@ -102,7 +116,7 @@ CREATE TABLE IF NOT EXISTS score_events (
 -- Phase 6: 台灣FDA + USDA 食品營養資料庫快取
 CREATE TABLE IF NOT EXISTS food_nutrition_cache (
     cache_id       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    source         VARCHAR(10)     NOT NULL,          -- 'TW_FDA' | 'USDA'
+    source         VARCHAR(10)     NOT NULL,          -- 'TW_FDA' | 'USDA' | 'GI_LLM'
     food_id        VARCHAR(50)     NOT NULL,          -- 整合編號 或 USDA fdcId
     food_name      VARCHAR(200)    NOT NULL,
     food_name_en   VARCHAR(200),

@@ -12,6 +12,8 @@ This round focused on bug consolidation, schema hardening, and documentation cle
 - Intake persistence now writes the initial weight into weight_logs.
 - ProfileManager.load() is now a pure read and no longer writes the profile file on every load.
 - README and maintenance docs were synchronized and localized for Chinese-speaking maintainers.
+- GI fallback now has a production bridge: static DB first, then TW_FDA macro proxy, then an OpenAI-compatible chat-completions fallback with 30-day SQLite cache (`source='GI_LLM'`).
+- Meal planning is no longer template-only at the agent layer: `meal_planner.py` now supports an OpenAI-compatible optimisation bridge, validates calorie/protein/variety constraints, retries corrections, and falls back to the legacy template planner when needed.
 
 ## Current Phase: Phase 3 Complete
 

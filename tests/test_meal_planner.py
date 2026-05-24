@@ -3,17 +3,23 @@
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _SKILL_DIR = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_SKILL_DIR))
 
+from scripts.db_manager import DBManager
 from scripts.meal_planner import (
     generate_meal_plan,
+    generate_optimized_meal_plan,
     format_meal_plan,
     get_daily_calorie_distribution,
+    persist_meal_plan,
+    _validate_day,
     _MEAL_TEMPLATES,
     _SHOPPING_CATEGORIES,
 )
@@ -185,6 +191,117 @@ class TestTemplateIntegrity(unittest.TestCase):
                         self.assertIsInstance(name, str)
                         self.assertIsInstance(cal, (int, float))
                         self.assertIsInstance(protein, (int, float))
+
+
+def _mock_optimized_days(days: int = 7) -> dict:
+    result_days = []
+    meal_names = [
+        ("燕麥蛋白杯", "雞胸便當", "鮭魚飯", "希臘優格"),
+        ("地瓜炒蛋", "牛肉藜麥碗", "豆腐雞湯", "毛豆"),
+        ("全麥蛋餅", "鮪魚沙拉", "味噌鯖魚", "無糖豆漿"),
+        ("優格莓果杯", "雞腿糙米餐", "牛腱蔬菜盤", "茶葉蛋"),
+        ("豆漿燕麥", "豬里肌便當", "蝦仁義大利麵", "堅果"),
+        ("鮭魚飯糰", "雞胸蕎麥麵", "豆腐火鍋", "毛豆"),
+        ("香蕉乳清杯", "牛肉烏龍麵", "雞腿沙拉", "優格"),
+    ]
+    for idx in range(days):
+        breakfast, lunch, dinner, snack = meal_names[idx]
+        result_days.append({
+            "day": idx + 1,
+            "meals": {
+                "breakfast": {"name": breakfast, "estimated_calories": 360, "protein_g": 28, "carb_g": 38, "fat_g": 10, "prep_note": "前晚可先備料", "gi_tier": "low"},
+                "lunch": {"name": lunch, "estimated_calories": 620, "protein_g": 42, "carb_g": 58, "fat_g": 18, "prep_note": "外食優先選烤/滷", "gi_tier": "medium"},
+                "dinner": {"name": dinner, "estimated_calories": 640, "protein_g": 40, "carb_g": 55, "fat_g": 20, "prep_note": "晚餐蔬菜至少兩份", "gi_tier": "low"},
+                "snack": {"name": snack, "estimated_calories": 120, "protein_g": 12, "carb_g": 10, "fat_g": 4, "prep_note": "下午補蛋白", "gi_tier": "low"},
+            },
+            "daily_total_calories": 1740,
+            "shopping_items": ["雞胸肉", "燕麥", "青菜"],
+        })
+    return {"days": result_days}
+
+
+class TestOptimizedMealPlan(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.db = DBManager(Path(self.tmp.name) / "healthfit.db", fast_mode=True)
+        self.db.initialize()
+        self.user_id = "user_test_001"
+        self.db.execute(
+            "INSERT INTO users (user_id, display_name) VALUES (?, ?)",
+            (self.user_id, "Tester"),
+        )
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_optimized_plan_calorie_within_tolerance(self):
+        plan = generate_optimized_meal_plan(
+            db=self.db,
+            user_id=self.user_id,
+            daily_calories=1800,
+            macro_targets={"protein_g": 120, "carb_g": 180, "fat_g": 50},
+            llm_estimator=lambda _prompt: _mock_optimized_days(),
+        )
+        for day in plan["plan"]:
+            self.assertLessEqual(abs(day["total_calories"] - 1800) / 1800, 0.05)
+        self.assertEqual(plan["summary"]["source"], "optimized_llm")
+
+    def test_optimized_plan_no_duplicate_meals(self):
+        plan = generate_optimized_meal_plan(
+            db=self.db,
+            user_id=self.user_id,
+            daily_calories=1800,
+            macro_targets={"protein_g": 120, "carb_g": 180, "fat_g": 50},
+            llm_estimator=lambda _prompt: _mock_optimized_days(),
+        )
+        counts = {}
+        for day in plan["plan"]:
+            for meal in day["meals"].values():
+                counts[meal["name"]] = counts.get(meal["name"], 0) + 1
+        self.assertTrue(all(count <= 2 for count in counts.values()))
+
+    def test_falls_back_to_template_on_llm_failure(self):
+        plan = generate_optimized_meal_plan(
+            db=self.db,
+            user_id=self.user_id,
+            daily_calories=1800,
+            macro_targets={"protein_g": 120, "carb_g": 180, "fat_g": 50},
+            llm_estimator=lambda _prompt: None,
+        )
+        self.assertEqual(plan["summary"]["source"], "template_fallback")
+        self.assertEqual(len(plan["plan"]), 7)
+
+    def test_validation_catches_low_protein(self):
+        violations = _validate_day(
+            {
+                "day": 1,
+                "meals": {
+                    "breakfast": {"estimated_calories": 500, "protein_g": 10},
+                    "lunch": {"estimated_calories": 600, "protein_g": 20},
+                    "dinner": {"estimated_calories": 600, "protein_g": 20},
+                },
+            },
+            1800,
+            {"protein_g": 120, "carb_g": 180, "fat_g": 50},
+        )
+        self.assertTrue(any("蛋白質" in item for item in violations))
+
+    def test_persist_meal_plan_writes_weekly_meal_plans(self):
+        plan = generate_optimized_meal_plan(
+            db=self.db,
+            user_id=self.user_id,
+            daily_calories=1800,
+            macro_targets={"protein_g": 120, "carb_g": 180, "fat_g": 50},
+            llm_estimator=lambda _prompt: _mock_optimized_days(),
+            persist=True,
+        )
+        row = self.db.fetch_one(
+            "SELECT source, plan_json FROM weekly_meal_plans WHERE user_id = ?",
+            (self.user_id,),
+        )
+        self.assertIsNotNone(row)
+        self.assertEqual(row["source"], "optimized_llm")
+        self.assertIn("燕麥蛋白杯", row["plan_json"])
 
 
 if __name__ == "__main__":

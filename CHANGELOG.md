@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.4 - 2026-05-24
+
+Meal-plan optimisation and persistence
+
+- Added `generate_optimized_meal_plan()` in `scripts/meal_planner.py`
+- New optimisation flow analyzes recent food logs and low-score eating patterns, builds a structured planning prompt, validates LLM output, retries corrections, and falls back to template mode when needed
+- Added OpenAI-compatible meal-plan provider bridge via `HEALTHFIT_MEAL_PLAN_MODEL` / `HEALTHFIT_MEAL_PLAN_API_KEY`
+- Added `weekly_meal_plans` table and `persist_meal_plan()` helper for optional SQLite persistence
+- CLI `meal_planner.py plan` now supports `--restrictions`, `--template-only`, and `--persist`
+- Added regression tests for calorie tolerance, duplicate-meal limits, low-protein validation, fallback behavior, and DB persistence
+
+## 0.7.3 - 2026-05-24
+
+GI fallback automation and provider bridge
+
+- Extended `scripts/gi_guide.py` to a 3-layer lookup path: static GI DB → TW_FDA macro proxy → optional OpenAI-compatible LLM fallback
+- Added persistent `GI_LLM` caching in `food_nutrition_cache` with a 30-day TTL to avoid repeated model calls for compound dishes
+- Added an environment-variable driven provider bridge using Chat Completions semantics
+- Added CLI controls for `--no-db` and `--no-llm`
+- Added regression tests covering env-configured HTTP fallback, cache reuse, and explicit CLI disable behavior
+- Updated README, SKILL.md, and implementation notes for deployment and configuration
+
 ## 0.7.2 - 2026-05-24
 
 Bugfix consolidation, schema cleanup, and Chinese deployment docs

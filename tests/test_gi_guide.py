@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Tests for Phase 6 gi_guide.py."""
 
+import io
+import json
 import sys
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _SKILL_DIR = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_SKILL_DIR))
 
+import scripts.gi_guide as GI_MODULE
+from scripts.db_manager import DBManager
 from scripts.gi_guide import (
     classify_food,
     recommend_swap,
@@ -67,6 +73,131 @@ class TestClassifyFood(unittest.TestCase):
         result = classify_food("甜甜圈")
         self.assertTrue(result["found"])
         self.assertEqual(result["tier"], "high")
+
+    def test_uses_tw_fda_proxy_when_static_db_misses(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = DBManager(Path(tmpdir) / "healthfit.db", fast_mode=True)
+            db.initialize()
+            db.execute(
+                """
+                INSERT INTO food_nutrition_cache (
+                    source, food_id, food_name, category,
+                    calories_100g, protein_100g, carb_100g, fat_100g, fiber_100g
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("TW_FDA", "tw-fried-chicken", "炸雞排", "肉類", 290, 22, 3, 18, 0),
+            )
+
+            result = classify_food("炸雞排", db=db)
+
+        self.assertTrue(result["found"])
+        self.assertEqual(result["source"], "nutrition_proxy")
+        self.assertEqual(result["tier"], "low")
+        self.assertEqual(result["matched_food"], "炸雞排")
+        self.assertGreaterEqual(result["confidence"], 0.55)
+
+    def test_uses_llm_estimator_and_caches_result(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = DBManager(Path(tmpdir) / "healthfit.db", fast_mode=True)
+            db.initialize()
+            calls: list[str] = []
+
+            def estimator(food_name: str) -> dict:
+                calls.append(food_name)
+                return {
+                    "gi": 62,
+                    "tier": "medium",
+                    "confidence": 0.72,
+                    "rationale": "以主要澱粉來源判定為中 GI。",
+                }
+
+            first = classify_food("鹹水雞", db=db, llm_estimator=estimator)
+            second = classify_food("鹹水雞", db=db, llm_estimator=estimator)
+
+        self.assertTrue(first["found"])
+        self.assertEqual(first["source"], "llm_estimate")
+        self.assertEqual(first["tier"], "medium")
+        self.assertEqual(second["source"], "llm_estimate")
+        self.assertEqual(calls, ["鹹水雞"])
+
+    def test_uses_env_llm_bridge_when_configured(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = DBManager(Path(tmpdir) / "healthfit.db", fast_mode=True)
+            db.initialize()
+            payload = {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "gi": 64,
+                                "tier": "medium",
+                                "confidence": 0.68,
+                                "rationale": "炒製且含甜醬，主體碳水偏中 GI。",
+                            }, ensure_ascii=False)
+                        }
+                    }
+                ]
+            }
+
+            class FakeHTTPResponse:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+                def read(self):
+                    return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+            with mock.patch.dict(
+                GI_MODULE.os.environ,
+                {
+                    "HEALTHFIT_GI_MODEL": "gpt-4.1-mini",
+                    "HEALTHFIT_GI_API_KEY": "test-key",
+                    "HEALTHFIT_GI_API_URL": "https://example.test/v1/chat/completions",
+                },
+                clear=False,
+            ), mock.patch.object(
+                GI_MODULE.urllib_request,
+                "urlopen",
+                return_value=FakeHTTPResponse(),
+            ) as mock_urlopen:
+                first = classify_food("炒麵麵包", db=db)
+                second = classify_food("炒麵麵包", db=db)
+
+        self.assertTrue(first["found"])
+        self.assertEqual(first["source"], "llm_estimate")
+        self.assertEqual(first["tier"], "medium")
+        self.assertEqual(second["source"], "llm_estimate")
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    def test_cli_no_llm_disables_env_bridge(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = DBManager(Path(tmpdir) / "healthfit.db", fast_mode=True)
+            db.initialize()
+            args = type("Args", (), {
+                "food": "鹹水雞",
+                "json": False,
+                "db_path": str(Path(tmpdir) / "healthfit.db"),
+                "use_db": True,
+                "disable_llm": True,
+            })()
+
+            with mock.patch.dict(
+                GI_MODULE.os.environ,
+                {
+                    "HEALTHFIT_GI_MODEL": "gpt-4.1-mini",
+                    "HEALTHFIT_GI_API_KEY": "test-key",
+                },
+                clear=False,
+            ), mock.patch.object(GI_MODULE.urllib_request, "urlopen") as mock_urlopen, mock.patch(
+                "sys.stdout",
+                new_callable=io.StringIO,
+            ) as fake_stdout:
+                GI_MODULE.cmd_classify(args)
+
+        self.assertIn("尚未收錄", fake_stdout.getvalue())
+        mock_urlopen.assert_not_called()
 
 
 class TestRecommendSwap(unittest.TestCase):

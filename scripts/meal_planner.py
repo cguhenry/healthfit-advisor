@@ -24,14 +24,22 @@ import argparse
 import json
 import os
 import sys
+import re
+from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_MEAL_PLAN_API_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_MEAL_PLAN_TIMEOUT_SECONDS = 30
+MEAL_PLAN_LLM_MAX_RETRIES = 2
 
 # ─────────────────────────────────────────────────────────────
 # Meal plan templates
@@ -234,8 +242,483 @@ def generate_meal_plan(
             "avg_daily_protein_g": avg_protein,
             "total_items": len(collected_items),
             "days_count": 7,
+            "source": "template",
         },
     }
+
+
+def _extract_json_object(text: str) -> Optional[dict]:
+    if not text:
+        return None
+    stripped = text.strip()
+    try:
+        parsed = json.loads(stripped)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", stripped)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _get_recent_food_preferences(
+    db,
+    user_id: str,
+    *,
+    lookback_days: int = 14,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    rows = db.fetchall(
+        """
+        SELECT food_name, COUNT(*) AS freq
+          FROM food_logs
+         WHERE user_id = ?
+           AND food_name IS NOT NULL
+           AND food_name != '___MEAL_TOTAL___'
+           AND DATE(log_datetime) >= DATE('now', ?)
+         GROUP BY food_name
+         ORDER BY freq DESC, food_name ASC
+         LIMIT ?
+        """,
+        (user_id, f"-{lookback_days} day", limit),
+    )
+    return [{"food_name": row["food_name"], "count": int(row["freq"])} for row in rows]
+
+
+def _get_low_score_patterns(
+    db,
+    user_id: str,
+    *,
+    lookback_days: int = 14,
+    score_threshold: int = 60,
+    limit: int = 8,
+) -> list[dict[str, Any]]:
+    rows = db.fetchall(
+        """
+        SELECT fl.food_name, COUNT(*) AS freq
+          FROM daily_summaries ds
+          JOIN food_logs fl
+            ON fl.user_id = ds.user_id
+           AND DATE(fl.log_datetime) = ds.summary_date
+         WHERE ds.user_id = ?
+           AND ds.daily_score IS NOT NULL
+           AND ds.daily_score < ?
+           AND ds.summary_date >= DATE('now', ?)
+           AND fl.food_name != '___MEAL_TOTAL___'
+         GROUP BY fl.food_name
+         ORDER BY freq DESC, fl.food_name ASC
+         LIMIT ?
+        """,
+        (user_id, score_threshold, f"-{lookback_days} day", limit),
+    )
+    return [{"food_name": row["food_name"], "count": int(row["freq"])} for row in rows]
+
+
+def _stringify_food_patterns(items: list[dict[str, Any]], *, empty_text: str) -> str:
+    if not items:
+        return empty_text
+    return "\n".join(f"- {item['food_name']}（{item['count']} 次）" for item in items)
+
+
+def _build_planning_prompt(
+    *,
+    daily_calories: int,
+    macro_targets: dict[str, float],
+    cuisine_pref: str,
+    meal_preference: str,
+    dietary_restrictions: list[str],
+    recent_foods: list[dict[str, Any]],
+    avoid_patterns: list[dict[str, Any]],
+    days: int,
+) -> str:
+    return f"""
+你是一位專業的台灣飲食計劃師。請為使用者制定 {days} 天的飲食計劃。
+
+== 營養目標（每日）==
+- 總熱量：{daily_calories} kcal（允許 ±5%）
+- 蛋白質：≥ {macro_targets['protein_g']}g
+- 碳水化合物：約 {macro_targets['carb_g']}g
+- 脂肪：約 {macro_targets['fat_g']}g
+
+== 偏好設定 ==
+- 飲食風格：{cuisine_pref}
+- 進食偏好：{meal_preference}
+- 飲食限制：{', '.join(dietary_restrictions) or '無'}
+
+== 近期飲食紀錄（請盡量不重複）==
+{_stringify_food_patterns(recent_foods, empty_text='- 無近期紀錄')}
+
+== 請避免的飲食模式（根據過去低分記錄）==
+{_stringify_food_patterns(avoid_patterns, empty_text='- 無特殊低分模式')}
+
+== 規則 ==
+- 同一道菜 7 天內不可出現超過 2 次
+- 每天至少包含 breakfast、lunch、dinner，可額外含 snack
+- 每餐請提供：name, estimated_calories, protein_g, carb_g, fat_g, prep_note, gi_tier
+- 請以台灣常見外食/家常菜為主，名稱要可執行、可購買、可理解
+- shopping_items 請列出當天主要採買項目
+
+== 輸出格式 ==
+請只回傳 JSON，不要加任何說明文字：
+{{
+  "days": [
+    {{
+      "day": 1,
+      "meals": {{
+        "breakfast": {{"name": "...", "estimated_calories": 350, "protein_g": 20, "carb_g": 40, "fat_g": 10, "prep_note": "...", "gi_tier": "low"}},
+        "lunch": {{"name": "...", "estimated_calories": 650, "protein_g": 45, "carb_g": 60, "fat_g": 18, "prep_note": "...", "gi_tier": "medium"}},
+        "dinner": {{"name": "...", "estimated_calories": 620, "protein_g": 40, "carb_g": 55, "fat_g": 20, "prep_note": "...", "gi_tier": "low"}},
+        "snack": {{"name": "...", "estimated_calories": 120, "protein_g": 12, "carb_g": 10, "fat_g": 4, "prep_note": "...", "gi_tier": "low"}}
+      }},
+      "daily_total_calories": 1740,
+      "shopping_items": ["雞胸肉", "燕麥", "青菜"]
+    }}
+  ]
+}}
+""".strip()
+
+
+def _build_correction_prompt(previous_prompt: str, violations: list[str]) -> str:
+    return (
+        previous_prompt
+        + "\n\n上一次輸出未通過驗證，請只修正違規處並重新輸出完整 JSON。\n"
+        + "\n".join(f"- {v}" for v in violations)
+    )
+
+
+def _build_meal_plan_messages(prompt: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是營養規劃師與結構化 JSON 產生器。"
+                "請嚴格遵守使用者要求，只輸出單一 JSON 物件，不要 markdown。"
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
+
+
+def _env_meal_plan_estimator(prompt: str) -> Optional[dict]:
+    model = os.environ.get("HEALTHFIT_MEAL_PLAN_MODEL", "").strip()
+    api_key = (
+        os.environ.get("HEALTHFIT_MEAL_PLAN_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not model or not api_key:
+        return None
+
+    api_url = os.environ.get("HEALTHFIT_MEAL_PLAN_API_URL", DEFAULT_MEAL_PLAN_API_URL).strip()
+    timeout_seconds = int(os.environ.get("HEALTHFIT_MEAL_PLAN_TIMEOUT_SECONDS", str(DEFAULT_MEAL_PLAN_TIMEOUT_SECONDS)))
+    payload = {
+        "model": model,
+        "temperature": 0.4,
+        "response_format": {"type": "json_object"},
+        "messages": _build_meal_plan_messages(prompt),
+    }
+    request = urllib_request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read().decode("utf-8")
+    except (urllib_error.URLError, TimeoutError, OSError, ValueError):
+        return None
+
+    try:
+        response_json = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+
+    content = ""
+    choices = response_json.get("choices") or []
+    if choices:
+        message = choices[0].get("message", {})
+        raw_content = message.get("content", "")
+        if isinstance(raw_content, list):
+            content = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in raw_content
+            )
+        else:
+            content = str(raw_content)
+    return _extract_json_object(content)
+
+
+def _call_llm_for_plan(
+    prompt: str,
+    *,
+    llm_estimator: Optional[Callable[[str], Optional[dict]]] = None,
+) -> Optional[dict]:
+    estimator = llm_estimator or _env_meal_plan_estimator
+    return estimator(prompt) if estimator else None
+
+
+def _validate_day(day_plan: dict, daily_calories: int, macro_targets: dict[str, float]) -> list[str]:
+    violations: list[str] = []
+    meals = day_plan.get("meals", {})
+    total_cal = sum(float(m.get("estimated_calories", 0) or 0) for m in meals.values())
+    if daily_calories > 0 and abs(total_cal - daily_calories) / daily_calories > 0.05:
+        violations.append(
+            f"第 {day_plan.get('day')} 天熱量偏差 {total_cal - daily_calories:+.0f} kcal（目標 {daily_calories}）"
+        )
+
+    total_protein = sum(float(m.get("protein_g", 0) or 0) for m in meals.values())
+    if total_protein < float(macro_targets["protein_g"]) * 0.85:
+        violations.append(
+            f"第 {day_plan.get('day')} 天蛋白質 {total_protein:.0f}g 低於目標 {macro_targets['protein_g']}g 的 85%"
+        )
+
+    for required in ["breakfast", "lunch", "dinner"]:
+        if required not in meals:
+            violations.append(f"第 {day_plan.get('day')} 天缺少 {required}")
+    return violations
+
+
+def _normalize_optimized_day(day_plan: dict, *, day_index: int) -> dict:
+    meal_labels = {"breakfast": "早餐", "lunch": "午餐", "dinner": "晚餐", "snack": "點心"}
+    meals: dict[str, dict[str, Any]] = {}
+    total_calories = 0
+    total_protein = 0
+
+    for meal_type, meal in (day_plan.get("meals") or {}).items():
+        est_cal = round(float(meal.get("estimated_calories", 0) or 0))
+        protein = round(float(meal.get("protein_g", 0) or 0))
+        carb = round(float(meal.get("carb_g", 0) or 0))
+        fat = round(float(meal.get("fat_g", 0) or 0))
+        meals[meal_type] = {
+            "name": str(meal.get("name", "")).strip(),
+            "calories": est_cal,
+            "estimated_calories": est_cal,
+            "protein_g": protein,
+            "carb_g": carb,
+            "fat_g": fat,
+            "note": str(meal.get("prep_note", "")).strip(),
+            "prep_note": str(meal.get("prep_note", "")).strip(),
+            "gi_tier": str(meal.get("gi_tier", "unknown")).strip(),
+            "label": meal_labels.get(meal_type, meal_type),
+        }
+        total_calories += est_cal
+        total_protein += protein
+
+    shopping_items = [str(item).strip() for item in day_plan.get("shopping_items", []) if str(item).strip()]
+    day_value = day_plan.get("day", day_index + 1)
+    day_name = day_value if isinstance(day_value, str) and day_value.startswith("週") else f"第{day_index + 1}天"
+
+    return {
+        "day": day_name,
+        "meals": meals,
+        "total_calories": total_calories,
+        "total_protein_g": total_protein,
+        "shopping_items": shopping_items,
+    }
+
+
+def _validate_weekly_variety(days: list[dict], *, max_repeats: int = 2) -> list[str]:
+    counter: Counter[str] = Counter()
+    for day in days:
+        for meal in day.get("meals", {}).values():
+            name = str(meal.get("name", "")).strip()
+            if name:
+                counter[name] += 1
+    return [
+        f"同一道菜「{name}」出現 {count} 次，超過上限 {max_repeats} 次"
+        for name, count in counter.items()
+        if count > max_repeats
+    ]
+
+
+def _build_optimized_plan_response(
+    normalized_days: list[dict],
+    *,
+    daily_calories: int,
+    cuisine: str,
+    meal_preference: str,
+    shopping_seed: set[str],
+    source: str,
+    days_count: int,
+) -> dict:
+    collected_items = set(shopping_seed)
+    for day in normalized_days:
+        for meal in day["meals"].values():
+            _extract_items(meal["name"], collected_items)
+        for item in day.get("shopping_items", []):
+            collected_items.add(item)
+
+    shopping_list = _build_shopping_list(collected_items, cuisine)
+    avg_cal = round(sum(d["total_calories"] for d in normalized_days) / max(len(normalized_days), 1))
+    avg_protein = round(sum(d["total_protein_g"] for d in normalized_days) / max(len(normalized_days), 1))
+    return {
+        "plan": normalized_days,
+        "shopping_list": shopping_list,
+        "summary": {
+            "cuisine": cuisine,
+            "meal_preference": meal_preference,
+            "daily_calorie_target": daily_calories,
+            "avg_daily_calories": avg_cal,
+            "avg_daily_protein_g": avg_protein,
+            "total_items": len(collected_items),
+            "days_count": days_count,
+            "source": source,
+        },
+    }
+
+
+def _parse_and_validate_plan(
+    raw_plan: Any,
+    *,
+    daily_calories: int,
+    macro_targets: dict[str, float],
+    cuisine: str,
+    meal_preference: str,
+    expected_days: int = 7,
+) -> dict[str, Any]:
+    parsed = raw_plan if isinstance(raw_plan, dict) else _extract_json_object(str(raw_plan))
+    if not parsed:
+        return {"valid": False, "violations": ["LLM 未回傳可解析 JSON"]}
+
+    raw_days = parsed.get("days")
+    if not isinstance(raw_days, list) or len(raw_days) != expected_days:
+        return {"valid": False, "violations": [f"LLM 回傳天數不正確，預期 {expected_days} 天"]}
+
+    violations: list[str] = []
+    normalized_days: list[dict] = []
+    shopping_seed: set[str] = set()
+
+    for idx, raw_day in enumerate(raw_days):
+        day_violations = _validate_day(raw_day, daily_calories, macro_targets)
+        violations.extend(day_violations)
+        normalized = _normalize_optimized_day(raw_day, day_index=idx)
+        normalized_days.append(normalized)
+        for item in normalized.get("shopping_items", []):
+            shopping_seed.add(item)
+
+    violations.extend(_validate_weekly_variety(normalized_days))
+    if violations:
+        return {"valid": False, "violations": violations, "days": normalized_days}
+
+    return {
+        "valid": True,
+        **_build_optimized_plan_response(
+            normalized_days,
+            daily_calories=daily_calories,
+            cuisine=cuisine,
+            meal_preference=meal_preference,
+            shopping_seed=shopping_seed,
+            source="optimized_llm",
+            days_count=expected_days,
+        ),
+    }
+
+
+def persist_meal_plan(
+    db,
+    user_id: str,
+    plan: dict,
+    *,
+    week_start_date: Optional[str] = None,
+) -> None:
+    db.initialize()
+    if week_start_date is None:
+        today = date.today()
+        week_start_date = (today - timedelta(days=today.weekday())).isoformat()
+    summary = plan.get("summary", {})
+    db.execute(
+        """
+        INSERT INTO weekly_meal_plans (
+            plan_id, user_id, week_start_date, cuisine, meal_preference,
+            source, plan_json, shopping_list_json, summary_json
+        ) VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, week_start_date, source) DO UPDATE SET
+            cuisine = excluded.cuisine,
+            meal_preference = excluded.meal_preference,
+            plan_json = excluded.plan_json,
+            shopping_list_json = excluded.shopping_list_json,
+            summary_json = excluded.summary_json,
+            created_at = CURRENT_TIMESTAMP
+        """,
+        (
+            user_id,
+            week_start_date,
+            summary.get("cuisine"),
+            summary.get("meal_preference"),
+            summary.get("source", "template"),
+            json.dumps(plan.get("plan", []), ensure_ascii=False),
+            json.dumps(plan.get("shopping_list", {}), ensure_ascii=False),
+            json.dumps(summary, ensure_ascii=False),
+        ),
+    )
+
+
+def generate_optimized_meal_plan(
+    db,
+    user_id: str,
+    daily_calories: int,
+    macro_targets: dict[str, float],
+    cuisine_pref: str = "台式",
+    dietary_restrictions: Optional[list[str]] = None,
+    days: int = 7,
+    meal_preference: str = "balanced",
+    llm_estimator: Optional[Callable[[str], Optional[dict]]] = None,
+    persist: bool = False,
+) -> dict:
+    """LLM-optimized weekly meal plan with validation and template fallback."""
+    recent_foods = _get_recent_food_preferences(db, user_id, lookback_days=14)
+    low_score_patterns = _get_low_score_patterns(db, user_id)
+    prompt = _build_planning_prompt(
+        daily_calories=daily_calories,
+        macro_targets=macro_targets,
+        cuisine_pref=cuisine_pref,
+        meal_preference=meal_preference,
+        dietary_restrictions=dietary_restrictions or [],
+        recent_foods=recent_foods,
+        avoid_patterns=low_score_patterns,
+        days=days,
+    )
+
+    validation_result: Optional[dict[str, Any]] = None
+    for _attempt in range(MEAL_PLAN_LLM_MAX_RETRIES + 1):
+        raw = _call_llm_for_plan(prompt, llm_estimator=llm_estimator)
+        if not raw:
+            break
+        validation_result = _parse_and_validate_plan(
+            raw,
+            daily_calories=daily_calories,
+            macro_targets=macro_targets,
+            cuisine=cuisine_pref,
+            meal_preference=meal_preference,
+            expected_days=days,
+        )
+        if validation_result.get("valid"):
+            if persist:
+                persist_meal_plan(db, user_id, validation_result)
+            return validation_result
+        prompt = _build_correction_prompt(prompt, validation_result.get("violations", []))
+
+    fallback = generate_meal_plan(
+        daily_calories=daily_calories,
+        cuisine=cuisine_pref,
+        meal_preference=meal_preference,
+        protein_target_g=int(macro_targets.get("protein_g", 0)) or None,
+    )
+    fallback["summary"]["source"] = "template_fallback"
+    if validation_result and validation_result.get("violations"):
+        fallback["summary"]["fallback_reason"] = validation_result["violations"]
+    if persist:
+        persist_meal_plan(db, user_id, fallback)
+    return fallback
 
 
 def _extract_items(meal_name: str, collected: set) -> None:
@@ -437,6 +920,10 @@ def cmd_plan(args: argparse.Namespace) -> None:
     # Try to read the user's active plan for calorie target
     daily_calories = args.calories or 1800
     protein_target = None
+    carb_target = None
+    fat_target = None
+    user_id = ""
+    db = None
 
     if db_path.exists():
         from db_manager import DBManager
@@ -451,7 +938,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
                 user_id = profile.get("user_id") or profile.get("user", {}).get("user_id", "")
                 if user_id:
                     plan = db.fetch_one(
-                        """SELECT daily_calorie_target, protein_target_g FROM weight_plans
+                        """SELECT daily_calorie_target, protein_target_g, carb_target_g, fat_target_g FROM weight_plans
                            WHERE user_id = ? AND is_active = 1 LIMIT 1""",
                         (user_id,),
                     )
@@ -460,15 +947,38 @@ def cmd_plan(args: argparse.Namespace) -> None:
                             daily_calories = plan["daily_calorie_target"]
                         if "protein_target_g" in plan and plan["protein_target_g"]:
                             protein_target = plan["protein_target_g"]
+                        if "carb_target_g" in plan and plan["carb_target_g"]:
+                            carb_target = plan["carb_target_g"]
+                        if "fat_target_g" in plan and plan["fat_target_g"]:
+                            fat_target = plan["fat_target_g"]
         except Exception:
             pass  # Fallback to defaults
 
-    plan = generate_meal_plan(
-        daily_calories=daily_calories,
-        cuisine=args.cuisine,
-        meal_preference=args.meal_preference,
-        protein_target_g=protein_target,
-    )
+    macro_targets = {
+        "protein_g": protein_target or max(90, round(daily_calories * 0.25 / 4)),
+        "carb_g": carb_target or round(daily_calories * 0.45 / 4),
+        "fat_g": fat_target or round(daily_calories * 0.30 / 9),
+    }
+    restrictions = [item.strip() for item in (args.restrictions or "").split(",") if item.strip()]
+
+    if args.template_only or not db or not user_id:
+        plan = generate_meal_plan(
+            daily_calories=daily_calories,
+            cuisine=args.cuisine,
+            meal_preference=args.meal_preference,
+            protein_target_g=protein_target,
+        )
+    else:
+        plan = generate_optimized_meal_plan(
+            db=db,
+            user_id=user_id,
+            daily_calories=daily_calories,
+            macro_targets=macro_targets,
+            cuisine_pref=args.cuisine,
+            dietary_restrictions=restrictions,
+            meal_preference=args.meal_preference,
+            persist=args.persist,
+        )
 
     if args.pdf:
         export_plan_pdf(plan, args.output or "meal_plan.pdf")
@@ -488,6 +998,9 @@ def main() -> None:
     p_plan.add_argument("--meal-preference", "-p", default="balanced",
                         choices=["balanced", "light", "high_protein"],
                         help="Meal preference (balanced/light/high_protein)")
+    p_plan.add_argument("--restrictions", default="", help="Comma-separated dietary restrictions")
+    p_plan.add_argument("--template-only", action="store_true", help="Force legacy template planner")
+    p_plan.add_argument("--persist", action="store_true", help="Persist weekly meal plan into SQLite when user_id is available")
     p_plan.add_argument("--json", action="store_true", help="Output JSON")
     p_plan.add_argument("--pdf", action="store_true", help="Export to PDF")
     p_plan.add_argument("--output", "-o", type=str, help="Output file path (default: meal_plan.pdf)")

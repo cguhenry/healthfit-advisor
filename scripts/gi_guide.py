@@ -22,12 +22,22 @@ Usage (CLI):
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import re
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable, Optional
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
+
+from db_manager import DBManager
+from food_db_lookup import FoodDBLookup, NutritionInfo
 
 # ─────────────────────────────────────────────────────────────
 # GI Food Database
@@ -37,6 +47,9 @@ if str(_SCRIPT_DIR) not in sys.path:
 # Low: ≤55, Medium: 56–69, High: ≥70
 GI_LOW = 55
 GI_HIGH = 70
+GI_LLM_CACHE_TTL_DAYS = 30
+DEFAULT_GI_LLM_API_URL = "https://api.openai.com/v1/chat/completions"
+DEFAULT_GI_LLM_TIMEOUT_SECONDS = 20
 
 # Comprehensive GI food database (GI value, tier, category)
 # GI values sourced from University of Sydney GI Database
@@ -199,9 +212,240 @@ _PHASE_STRATEGIES: dict[str, str] = {
 # Core functions
 # ─────────────────────────────────────────────────────────────
 
-def classify_food(food_name: str) -> dict:
-    """Classify a food's GI tier. Returns dict with gi, tier, category, advice."""
-    # Exact match
+def _fuzzy_match_static(food_name: str) -> Optional[tuple[str, dict[str, object]]]:
+    """Best-effort substring match against the curated static GI database."""
+    for name, info in _FOOD_GI_DB.items():
+        if food_name in name or name in food_name:
+            return name, info
+    return None
+
+
+def _estimate_gi_from_nutrition(food: NutritionInfo) -> Optional[dict]:
+    """
+    Estimate GI tier from macronutrient proxies when direct GI references are absent.
+
+    This is intentionally conservative:
+    - very low-carb foods are treated as low GI because they have minimal glycemic impact
+    - higher fiber ratio tends to lower glycemic response
+    - higher fat often slows gastric emptying, nudging mixed foods toward medium GI
+    """
+    carb = float(food.carb_100g or 0)
+    fiber = float(food.fiber_100g or 0)
+    fat = float(food.fat_100g or 0)
+
+    if carb <= 0 and fiber <= 0 and fat <= 0:
+        return None
+
+    if carb < 5:
+        return {"gi": 15, "tier": "low", "source": "nutrition_proxy", "confidence": 0.70}
+
+    fiber_ratio = fiber / carb if carb > 0 else 0.0
+    if fiber_ratio > 0.15:
+        return {"gi": 45, "tier": "low", "source": "nutrition_proxy", "confidence": 0.65}
+    if fiber_ratio > 0.05 or fat > 10:
+        return {"gi": 60, "tier": "medium", "source": "nutrition_proxy", "confidence": 0.55}
+    return {"gi": 75, "tier": "high", "source": "nutrition_proxy", "confidence": 0.55}
+
+
+def _load_cached_llm_estimate(food_name: str, db: DBManager) -> Optional[dict]:
+    cutoff = (datetime.utcnow() - timedelta(days=GI_LLM_CACHE_TTL_DAYS)).isoformat(sep=" ")
+    row = db.fetch_one(
+        """
+        SELECT raw_json
+          FROM food_nutrition_cache
+         WHERE source = 'GI_LLM'
+           AND food_name = ?
+           AND fetched_at >= ?
+         ORDER BY fetched_at DESC
+         LIMIT 1
+        """,
+        (food_name, cutoff),
+    )
+    if not row or not row["raw_json"]:
+        return None
+    try:
+        return json.loads(row["raw_json"])
+    except json.JSONDecodeError:
+        return None
+
+
+def _cache_llm_estimate(food_name: str, result: dict, db: DBManager) -> None:
+    db.execute(
+        """
+        INSERT INTO food_nutrition_cache (
+            source, food_id, food_name, raw_json, fetched_at
+        ) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(source, food_id) DO UPDATE SET
+            food_name = excluded.food_name,
+            raw_json = excluded.raw_json,
+            fetched_at = CURRENT_TIMESTAMP
+        """,
+        ("GI_LLM", food_name, food_name, json.dumps(result, ensure_ascii=False)),
+    )
+
+
+def _extract_json_object(text: str) -> Optional[dict]:
+    if not text:
+        return None
+    stripped = text.strip()
+    try:
+        parsed = json.loads(stripped)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", stripped)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def _build_gi_estimation_messages(food_name: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": (
+                "你是低GI飲食顧問。請估算食物的升糖指數（GI），"
+                "只回傳單一 JSON 物件，不要輸出 markdown、註解或額外文字。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"請估算「{food_name}」的升糖指數（GI）。"
+                "若是複合料理，請以主要碳水來源與烹調型態判斷整體 GI 傾向。"
+                "回傳 JSON 格式："
+                '{"gi": <數字或 null>, "tier": "low|medium|high|unknown", '
+                '"rationale": "<一句話理由>", "confidence": <0到1之間的小數>}。'
+                "tier 定義：low <= 55，medium 56-69，high >= 70。"
+            ),
+        },
+    ]
+
+
+def _env_llm_estimator(food_name: str) -> Optional[dict]:
+    """
+    Estimate GI via an OpenAI-compatible chat completions endpoint.
+
+    Required env vars:
+    - HEALTHFIT_GI_MODEL
+    - HEALTHFIT_GI_API_KEY or OPENAI_API_KEY
+
+    Optional env vars:
+    - HEALTHFIT_GI_API_URL (default: OpenAI chat completions endpoint)
+    - HEALTHFIT_GI_TIMEOUT_SECONDS
+    """
+    model = os.environ.get("HEALTHFIT_GI_MODEL", "").strip()
+    api_key = (
+        os.environ.get("HEALTHFIT_GI_API_KEY", "").strip()
+        or os.environ.get("OPENAI_API_KEY", "").strip()
+    )
+    if not model or not api_key:
+        return None
+
+    api_url = os.environ.get("HEALTHFIT_GI_API_URL", DEFAULT_GI_LLM_API_URL).strip()
+    timeout_seconds = int(os.environ.get("HEALTHFIT_GI_TIMEOUT_SECONDS", str(DEFAULT_GI_LLM_TIMEOUT_SECONDS)))
+    payload = {
+        "model": model,
+        "temperature": 0.2,
+        "response_format": {"type": "json_object"},
+        "messages": _build_gi_estimation_messages(food_name),
+    }
+    request = urllib_request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(request, timeout=timeout_seconds) as response:
+            body = response.read().decode("utf-8")
+    except (urllib_error.URLError, TimeoutError, OSError, ValueError):
+        return None
+
+    try:
+        response_json = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+
+    content = ""
+    choices = response_json.get("choices") or []
+    if choices:
+        message = choices[0].get("message", {})
+        raw_content = message.get("content", "")
+        if isinstance(raw_content, list):
+            content = "".join(
+                part.get("text", "") if isinstance(part, dict) else str(part)
+                for part in raw_content
+            )
+        else:
+            content = str(raw_content)
+
+    parsed = _extract_json_object(content)
+    if not parsed:
+        return None
+
+    return {
+        "gi": parsed.get("gi"),
+        "tier": parsed.get("tier", "unknown"),
+        "confidence": parsed.get("confidence", 0.0),
+        "rationale": parsed.get("rationale", ""),
+    }
+
+
+def _llm_estimate_gi(
+    food_name: str,
+    db: DBManager,
+    estimator: Optional[Callable[[str], Optional[dict]]] = None,
+) -> Optional[dict]:
+    """
+    Resolve a GI estimate via caller-provided LLM hook, with DB-backed caching.
+
+    gi_guide.py intentionally does not call a hosted model by itself. The caller
+    must inject an estimator callable so the script remains usable in CLI/tests.
+    """
+    cached = _load_cached_llm_estimate(food_name, db)
+    if cached:
+        return cached
+    estimator = estimator or _env_llm_estimator
+
+    if estimator is None:
+        return None
+
+    result = estimator(food_name)
+    if not result:
+        return None
+
+    normalized = {
+        "food": food_name,
+        "gi": result.get("gi"),
+        "tier": result.get("tier", "unknown"),
+        "confidence": float(result.get("confidence") or 0.0),
+        "rationale": result.get("rationale", ""),
+        "source": "llm_estimate",
+    }
+    if normalized["gi"] is not None:
+        normalized["advice"] = _tier_advice(str(normalized["tier"]))
+    _cache_llm_estimate(food_name, normalized, db)
+    return normalized
+
+
+def classify_food(
+    food_name: str,
+    db: Optional[DBManager] = None,
+    llm_estimator: Optional[Callable[[str], Optional[dict]]] = None,
+) -> dict:
+    """Classify a food's GI tier with static DB, nutrition proxy, and optional LLM fallback."""
+    food_name = food_name.strip()
+
+    # Layer 1: curated static DB exact match
     info = _FOOD_GI_DB.get(food_name)
     if info:
         return {
@@ -210,25 +454,68 @@ def classify_food(food_name: str) -> dict:
             "tier": info["tier"],
             "category": info["category"],
             "found": True,
+            "source": "static_db",
+            "confidence": 1.0,
             "advice": _tier_advice(info["tier"]),
         }
 
-    # Fuzzy match: try substring
-    for name, info in _FOOD_GI_DB.items():
-        if food_name in name or name in food_name:
+    # Layer 1b: curated static DB fuzzy match
+    matched = _fuzzy_match_static(food_name)
+    if matched:
+        name, info = matched
+        return {
+            "food": name,
+            "gi": info["gi"],
+            "tier": info["tier"],
+            "category": info["category"],
+            "found": True,
+            "source": "static_db",
+            "confidence": 1.0,
+            "advice": _tier_advice(info["tier"]),
+            "matched_by": "fuzzy",
+        }
+
+    # Layer 2: nutritional proxy from TW_FDA cache
+    if db is not None:
+        lookup = FoodDBLookup(db=db)
+        results = lookup.search_tw(food_name, top=1)
+        if results:
+            best = results[0]
+            estimate = _estimate_gi_from_nutrition(best.item)
+            if estimate and best.match_score >= 0.55 and estimate["confidence"] >= 0.55:
+                return {
+                    "food": food_name,
+                    "matched_food": best.item.food_name,
+                    "gi": estimate["gi"],
+                    "tier": estimate["tier"],
+                    "category": best.item.category,
+                    "found": True,
+                    "source": "nutrition_proxy",
+                    "confidence": round(min(best.match_score, estimate["confidence"]), 2),
+                    "matched_by": best.matched_on,
+                    "advice": _tier_advice(estimate["tier"]),
+                    "rationale": (
+                        "依台灣食品資料庫的碳水/纖維/脂肪比例推估，"
+                        "屬於營養代理估算，精度低於實測 GI 文獻。"
+                    ),
+                }
+
+    # Layer 3: optional LLM estimator with persistent cache
+    if db is not None:
+        llm_result = _llm_estimate_gi(food_name, db, estimator=llm_estimator)
+        if llm_result:
             return {
-                "food": name,
-                "gi": info["gi"],
-                "tier": info["tier"],
-                "category": info["category"],
+                **llm_result,
+                "food": food_name,
                 "found": True,
-                "advice": _tier_advice(info["tier"]),
-                "matched_by": "fuzzy",
+                "advice": llm_result.get("advice") or _tier_advice(str(llm_result.get("tier", "unknown"))),
             }
 
     return {
         "food": food_name,
         "found": False,
+        "source": "fallback",
+        "confidence": 0.0,
         "advice": _unknown_advice(food_name),
     }
 
@@ -306,7 +593,9 @@ def get_food_list_by_tier(tier: str) -> list[dict]:
 # ─────────────────────────────────────────────────────────────
 
 def cmd_classify(args: argparse.Namespace) -> None:
-    result = classify_food(args.food)
+    db = DBManager(Path(args.db_path).expanduser()) if args.use_db else None
+    llm_estimator = (lambda _food_name: None) if args.disable_llm else None
+    result = classify_food(args.food, db=db, llm_estimator=llm_estimator)
     if result["found"]:
         tier_emoji = {"low": "🟢", "medium": "🟡", "high": "🔴"}
         emoji = tier_emoji.get(result["tier"], "⚪")
@@ -354,6 +643,10 @@ def main() -> None:
     p_classify = sub.add_parser("classify", help="Classify food GI tier")
     p_classify.add_argument("--food", "-f", required=True, help="Food name")
     p_classify.add_argument("--json", action="store_true")
+    p_classify.add_argument("--db-path", default=str(DBManager.DEFAULT_DB_PATH), help="SQLite DB path for TW_FDA / GI_LLM lookup")
+    p_classify.add_argument("--no-db", dest="use_db", action="store_false", help="Disable TW_FDA and GI_LLM lookup layers")
+    p_classify.add_argument("--no-llm", dest="disable_llm", action="store_true", help="Disable env-configured LLM fallback")
+    p_classify.set_defaults(use_db=True, disable_llm=False)
 
     p_swap = sub.add_parser("swap", help="Suggest a low-GI swap")
     p_swap.add_argument("--food", "-f", required=True, help="Food name")

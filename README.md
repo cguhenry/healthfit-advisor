@@ -187,6 +187,23 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
     python3 scripts/calorie_tracker.py trend --user-id <user_id>
     python3 scripts/calorie_tracker.py compare --user-id <user_id>
 
+### GI 分類與複合料理自動估算
+
+基礎分類（靜態 GI DB + TW_FDA proxy + 可選 LLM fallback）：
+
+    python3 scripts/gi_guide.py classify --food "炸雞排"
+
+若已設定 GI 專用 LLM 環境變數，複合料理會在靜態 DB / TW_FDA 都 miss 時，自動走 LLM 估算並快取 30 天：
+
+    export HEALTHFIT_GI_MODEL=gpt-4.1-mini
+    export HEALTHFIT_GI_API_KEY=<your_api_key>
+    python3 scripts/gi_guide.py classify --food "鹹水雞"
+
+若要明確停用資料庫或 LLM fallback：
+
+    python3 scripts/gi_guide.py classify --food "鹹水雞" --no-llm
+    python3 scripts/gi_guide.py classify --food "鹹水雞" --no-db
+
 ### 報表與評分
 
     python3 scripts/scoring_engine.py score --user-id <user_id> --date 2026-05-24
@@ -199,6 +216,26 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
     python3 scripts/privacy_manager.py preview --user-id <user_id>
     python3 scripts/privacy_manager.py export --user-id <user_id> --output-dir ./exports
     python3 scripts/privacy_manager.py delete --user-id <user_id> --confirm
+
+### 一週飲食計劃最佳化
+
+預設 CLI 會在可讀到 `profile.user_id` 與 SQLite DB 時，優先嘗試 LLM 最佳化版；若模型未設定、輸出驗證失敗或重試後仍不合格，會自動 fallback 到既有 template 版本。
+
+直接產生計劃：
+
+    python3 scripts/meal_planner.py plan --cuisine 台式 --meal-preference balanced
+
+加入飲食限制：
+
+    python3 scripts/meal_planner.py plan --cuisine 日式 --restrictions "vegetarian,no_shellfish"
+
+強制使用舊版 template：
+
+    python3 scripts/meal_planner.py plan --template-only
+
+若要把本週計劃寫入 SQLite：
+
+    python3 scripts/meal_planner.py plan --persist
 
 ## Phase 3 → Phase 4 交接規格
 
@@ -231,6 +268,39 @@ calorie_tracker.py 會透過 normalize_phase3_analysis_payload() 做正規化與
 - HEALTHFIT_DB_PATH
 - HEALTHFIT_PROFILE
 
+若要啟用 `scripts/gi_guide.py` 的複合料理 LLM GI 估算：
+
+- `HEALTHFIT_GI_MODEL`
+- `HEALTHFIT_GI_API_KEY` 或沿用 `OPENAI_API_KEY`
+- optional `HEALTHFIT_GI_API_URL`
+- optional `HEALTHFIT_GI_TIMEOUT_SECONDS`
+
+預設使用 OpenAI 相容的 Chat Completions API：
+
+    https://api.openai.com/v1/chat/completions
+
+`gi_guide.py` 的 LLM fallback 只會在以下情況觸發：
+
+1. 靜態 GI DB 找不到
+2. `TW_FDA` proxy 沒命中或信心不足
+3. 有提供 GI LLM 環境變數
+
+成功估算後，結果會以 `source='GI_LLM'` 存入 `food_nutrition_cache`，TTL 為 30 天，避免重複呼叫模型。
+
+若要啟用 `scripts/meal_planner.py` 的最佳化週計劃：
+
+- `HEALTHFIT_MEAL_PLAN_MODEL`
+- `HEALTHFIT_MEAL_PLAN_API_KEY` 或沿用 `OPENAI_API_KEY`
+- optional `HEALTHFIT_MEAL_PLAN_API_URL`
+- optional `HEALTHFIT_MEAL_PLAN_TIMEOUT_SECONDS`
+
+`meal_planner.py` 的 LLM 版會做 Python 驗證：
+
+1. 每日總熱量需在目標 ±5% 內
+2. 每日蛋白質需達目標的 85% 以上
+3. 同一道菜 7 天內不可超過 2 次
+4. 若不合格，會帶違規原因重試；仍失敗則 fallback 到 template
+
 注意：
 
 - smoke test 不會真的送出外部通知
@@ -246,7 +316,7 @@ calorie_tracker.py 會透過 normalize_phase3_analysis_payload() 做正規化與
 
 - 單人模式優先，尚未完成多使用者授權
 - SQLite 為主，PostgreSQL 尚未抽象完成
-- Weekly meal plan 仍為 template-based，不是最佳化求解
+- Meal planner 現在支援 LLM 最佳化求解，但仍保留 template fallback；若未設定模型或驗證失敗，會退回 template 版
 - GI 資料庫只覆蓋常見台灣食品，未知食品會回 explicit fallback
 - 週評分若無體重資料，會自動重分配權重，不再默默扣分
 

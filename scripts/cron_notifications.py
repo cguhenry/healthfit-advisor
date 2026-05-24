@@ -24,7 +24,10 @@ from notification_scheduler import deliver_report
 
 def send_notification(user_id: str, message: str, channel: str, category: str) -> None:
     """Thin wrapper around notification_scheduler.deliver_report()."""
-    deliver_report({"user_id": user_id, "text": message, "category": category}, [channel])
+    deliver_report(
+        {"user_id": user_id, "report_text": message, "category": category},
+        [channel],
+    )
 
 
 # ─────────────────────────────────────────────────────────────
