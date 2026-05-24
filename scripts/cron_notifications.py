@@ -20,7 +20,12 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 from report_generator import generate_daily_report, generate_weekly_report
-from notification_scheduler import send_notification
+from notification_scheduler import deliver_report
+
+def send_notification(user_id: str, message: str, channel: str, category: str) -> None:
+    """Thin wrapper around notification_scheduler.deliver_report()."""
+    deliver_report({"user_id": user_id, "text": message, "category": category}, [channel])
+
 
 # ─────────────────────────────────────────────────────────────
 # Notification Logic

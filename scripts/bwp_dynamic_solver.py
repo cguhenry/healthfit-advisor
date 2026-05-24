@@ -246,19 +246,19 @@ class BWPModel:
         """
         體重變化的有效能量密度 (kcal per kg of body weight change)。
 
-        公式 (Hall 2010):
+        公式 (Hall 2010, Am J Physiol Endocrinol Metab 2010;298:E449-E466):
           energy_density = ρ_FM + ρ_FFM × ΔFFM_ratio
 
-        ΔFFM_ratio:
-          - loss: 0.3 (30% FFM loss)
-          - gain: 0.2 (20% FFM gain)
+        ΔFFM_ratio: loss=0.30, gain=0.20
+        Hall 原始值 ≈ 9980 kcal/kg，臨床廣泛使用 7700 kcal/kg ≈ 1 kg 脂肪。
+        此模組採用 Hall 原始值以與文獻測試標準一致；軌跡預測的 AT 動力學
+        完全基於 Hall 公式，與能量密度選擇無關。
         """
         if goal_type == "loss":
             return self.RHO_FM + self.RHO_FFM * self.FFM_RATIO_LOSS
         elif goal_type == "gain":
             return self.RHO_FM + self.RHO_FFM * self.FFM_RATIO_GAIN
         else:
-            # maintain: 用平均
             return self.RHO_FM + self.RHO_FFM * self.FFM_RATIO_LOSS
 
     # ── Plateau Detection ──

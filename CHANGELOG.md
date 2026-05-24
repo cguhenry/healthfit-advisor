@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0 - 2026-05-24
+
+**Phase 7: Cache, privacy tooling, and end-to-end smoke coverage**
+
+- Added `scripts/food_db_cache.py`:
+  - TTL-based in-memory cache in front of `food_db_lookup.py`
+  - Hot food search TTL: 1 hour
+  - Cold exact lookup / empty-result TTL: 24 hours
+  - Cache stats, invalidation, and expired-entry purge
+  - No Redis or external cache dependency
+- Added `scripts/privacy_manager.py`:
+  - `preview_user_data()` row counts by table
+  - `export_user_data()` JSON + CSV export bundle with manifest and zip archive
+  - `delete_user_data()` full per-user deletion with required confirmation
+- Added `scripts/integration_test.py`:
+  - End-to-end smoke flow covering representative Phase 1-7 operations
+  - Exercises intake, dialogue, analysis parsing, calorie tracking, scoring, report generation, exercise adjustment, cycle logging, GI guidance, food cache, and privacy export/delete
+- Added test modules:
+  - `tests/test_food_db_cache.py`
+  - `tests/test_privacy_manager.py`
+  - `tests/test_integration_test.py`
+- Updated README, SKILL.md, and PHASE_PROGRESS.md for Phase 7
+
 ## 0.6.0 - 2026-05-23
 
 **Phase 6: Exercise tracking, health alerts, GI guide, menstrual tracker, meal planner & notification completion**

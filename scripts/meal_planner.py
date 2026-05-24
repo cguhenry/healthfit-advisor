@@ -8,12 +8,14 @@ Generates a structured 7-day meal plan based on:
 - Cuisine type preferences
 - Eating location flexibility
 - Automatic shopping list from meal plan
+- PDF export for printing and sharing
 
 Usage (CLI):
     python3 scripts/meal_planner.py plan
     python3 scripts/meal_planner.py plan --cuisine 台式
     python3 scripts/meal_planner.py plan --meal-preference balanced
     python3 scripts/meal_planner.py plan --json
+    python3 scripts/meal_planner.py plan --pdf --output meal_plan.pdf
 """
 
 from __future__ import annotations
@@ -310,6 +312,121 @@ def format_meal_plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
+def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
+    """Export meal plan to a formatted PDF file."""
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        print("ERROR: fpdf2 not installed. Run: pip install fpdf2", file=sys.stderr)
+        return
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+
+    F = "Helvetica"; FB = "Helvetica"
+    # Try CJK font; fall back gracefully
+    try:
+        for _font_path in [
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+            "/usr/share/fonts/truetype/arphic/uming.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        ]:
+            if Path(_font_path).exists():
+                pdf.add_font("CJK", style="", fname=_font_path, uni=True)
+                pdf.add_font("CJK", style="B", fname=_font_path, uni=True)
+                F = "CJK"; FB = "CJK"
+                break
+    except Exception:
+        pass
+
+    try:
+        from fpdf.pyfunctions import CJK as _cjk
+        if F == "Helvetica":
+            pdf.add_font("CJK", style="", fname=_cjk.__file__, uni=True)
+            pdf.add_font("CJK", style="B", fname=_cjk.__file__, uni=True)
+            F = "CJK"; FB = "CJK"
+    except Exception:
+        pass
+    S = plan["summary"]
+    cuisine = S["cuisine"]; meal_pref = S["meal_preference"]
+    cal_tgt = S["daily_calorie_target"]; avg_cal = S["avg_daily_calories"]; avg_prot = S["avg_daily_protein_g"]
+
+    # ── Cover ──────────────────────────────────────────────────
+    pdf.add_page()
+    pdf.set_fill_color(0x1A, 0x7A, 0x5C)
+    pdf.rect(0, 0, 210, 50, "F")
+    pdf.set_font(FB, size=22); pdf.set_text_color(255, 255, 255); pdf.set_y(15)
+    pdf.cell(0, 12, "一週飲食計劃", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font(F, size=13)
+    pdf.cell(0, 8, f"{cuisine} · {meal_pref}  |  {cal_tgt} kcal/天",
+             align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(8); pdf.set_text_color(0, 0, 0)
+    pdf.set_fill_color(240, 248, 240); pdf.set_font(FB, size=11)
+    for i, (lbl, val) in enumerate([
+        ("每日目標", f"{cal_tgt} kcal"),
+        ("平均熱量", f"{avg_cal} kcal"),
+        ("平均蛋白質", f"{avg_prot} g"),
+    ]):
+        x = 10 + (i % 3) * 63
+        pdf.set_xy(x, pdf.get_y()); pdf.cell(61, 10, f"{lbl}: {val}", border=1, align="C", fill=True)
+    pdf.ln(16)
+
+    # ── Daily pages ─────────────────────────────────────────────
+    bgs = [(240,248,255),(245,255,250),(255,245,238),(245,245,220),
+           (240,255,240),(255,250,240),(248,248,255)]
+    meal_lbl = {"breakfast":"早餐","lunch":"午餐","dinner":"晚餐","snack":"點心"}
+
+    for di, day in enumerate(plan["plan"]):
+        pdf.add_page()
+        bg = bgs[di % len(bgs)]; pdf.set_fill_color(*bg); pdf.rect(0, 0, 210, 277, "F")
+        pdf.set_fill_color(0x1A,0x7A,0x5C); pdf.rect(0, pdf.get_y(), 210, 10, "F")
+        pdf.set_font(FB, size=13); pdf.set_text_color(255,255,255)
+        day_name = day["day"]
+        total_cal = day["total_calories"]
+        total_prot = day["total_protein_g"]
+        pdf.cell(0, 10, f"  {day_name}  |  {total_cal} kcal  |  蛋白質 {total_prot}g",
+                 new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4); pdf.set_text_color(0,0,0)
+        for mt, meal in day["meals"].items():
+            pdf.set_font(FB, size=11); pdf.set_x(12)
+            meal_name = meal["name"]
+            pdf.multi_cell(186, 7, f"{meal_lbl.get(mt,mt)}：{meal_name}", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font(F, size=10); pdf.set_x(18)
+            meal_cal = meal["calories"]; meal_prot = meal["protein_g"]
+            pdf.cell(0, 6, f"  🔥 {meal_cal} kcal  |  💪 蛋白質 {meal_prot}g",
+                     new_x="LMARGIN", new_y="NEXT")
+            if meal.get("note"):
+                pdf.set_x(18); pdf.set_font(F, size=9); pdf.set_text_color(80,80,80)
+                note = meal["note"]
+                pdf.multi_cell(174, 5, f"  💡 {note}", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(0,0,0)
+            pdf.ln(2)
+
+    # ── Shopping list ───────────────────────────────────────────
+    pdf.add_page()
+    pdf.set_fill_color(0x1A,0x7A,0x5C); pdf.rect(0, pdf.get_y(), 210, 10, "F")
+    pdf.set_font(FB, size=13); pdf.set_text_color(255,255,255)
+    pdf.cell(0, 10, "  🛒 採購清單", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0,0,0); pdf.ln(3)
+    for cat in ["蛋白質","蔬菜","水果","主食","飲料/調味","堅果/種子"]:
+        items = plan["shopping_list"].get(cat, [])
+        if not items: continue
+        pdf.set_font(FB, size=11); pdf.set_x(12)
+        pdf.cell(0, 7, f"📦 {cat}", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font(F, size=10)
+        half = (len(items)+1)//2; c1, c2 = items[:half], items[half:]
+        for i, item in enumerate(c1):
+            y = pdf.get_y()+6; pdf.set_xy(16, y)
+            pdf.cell(87, 6, f"  • {item}")
+            if i < len(c2): pdf.cell(87, 6, f"  • {c2[i]}")
+            pdf.ln(6)
+        pdf.ln(2)
+
+    pdf.output(str(output_path))
+    print(f"✅ PDF 已匯出：{output_path}")
+
+
+
 # ─────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────
@@ -322,7 +439,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
     protein_target = None
 
     if db_path.exists():
-        from scripts.db_manager import DBManager
+        from db_manager import DBManager
         try:
             db = DBManager(db_path=db_path)
 
@@ -353,7 +470,9 @@ def cmd_plan(args: argparse.Namespace) -> None:
         protein_target_g=protein_target,
     )
 
-    if args.json:
+    if args.pdf:
+        export_plan_pdf(plan, args.output or "meal_plan.pdf")
+    elif args.json:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
     else:
         print(format_meal_plan(plan))
@@ -370,6 +489,8 @@ def main() -> None:
                         choices=["balanced", "light", "high_protein"],
                         help="Meal preference (balanced/light/high_protein)")
     p_plan.add_argument("--json", action="store_true", help="Output JSON")
+    p_plan.add_argument("--pdf", action="store_true", help="Export to PDF")
+    p_plan.add_argument("--output", "-o", type=str, help="Output file path (default: meal_plan.pdf)")
 
     args = parser.parse_args()
 
