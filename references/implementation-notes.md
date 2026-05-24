@@ -1,5 +1,18 @@
 # HealthFit Advisor Implementation Notes
 
+## 2026-05-24 Maintenance Round
+
+This round focused on bug consolidation, schema hardening, and documentation cleanup:
+
+- Phase 3 → Phase 4 food nutrition handoff is now explicit and lossless.
+- get_recent_trend() and yesterday calculations now use timedelta, avoiding month-boundary bugs.
+- calorie_tracker.py query-only connections are now explicitly closed.
+- Weekly scoring treats missing weight data as unavailable input instead of as 0.0 kg.
+- score_events now exists in db_schema.sql, not only as runtime-created state.
+- Intake persistence now writes the initial weight into weight_logs.
+- ProfileManager.load() is now a pure read and no longer writes the profile file on every load.
+- README and maintenance docs were synchronized and localized for Chinese-speaking maintainers.
+
 ## Current Phase: Phase 3 Complete
 
 Phase 3 deliverables:
@@ -83,7 +96,25 @@ Confidence tiers:
 - Structured LLM prompt templates
 - Response parsing with confidence tiers
 - Human-readable output formatting
+- Native Phase 3 FOOD output contract published in `references/phase3_output_schema.json`
 - 48 total unit tests
+
+## Phase 3 → Phase 4 Contract
+
+- `calorie_tracker.normalize_phase3_analysis_payload()` is the normalization layer.
+- Preferred native payload is `foods` + `total_calories` + `macros`.
+- Legacy aliases `consumed_foods` and `total_nutrition` / `total_consumed` are still accepted for compatibility.
+- The skill now treats this handoff as an explicit contract, not an implicit dict convention.
+
+## Phase 5 Sparse-Data Rule
+
+- If weekly weight data is unavailable, the weekly score does **not** assign a zero to the weight-trend component.
+- Instead, the 20% weight-trend slot is marked unavailable and redistributed proportionally across daily average, diversity, and completeness.
+
+## Phase 6 Delivery Notes
+
+- `notification_scheduler.py` external delivery requires `DISCORD_WEBHOOK_URL`, `LINE_CHANNEL_ACCESS_TOKEN`, and `LINE_REPORT_TARGET`.
+- The smoke test intentionally avoids external notification delivery.
 
 ## Deferred To Later Phases
 

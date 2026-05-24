@@ -190,6 +190,37 @@ class TestScoreWeekly(unittest.TestCase):
         self.assertGreaterEqual(ws.diversity_score, 0)
         self.assertGreaterEqual(ws.completeness_score, 0)
 
+    def test_weekly_score_reweights_without_weight_data(self):
+        ws = score_weekly(
+            [80] * 7,
+            [2000] * 7,
+            2000,
+            food_category_coverage=0.6,
+            logged_days=7,
+            weight_change_kg=None,
+        )
+        self.assertFalse(ws.weight_trend_available)
+        self.assertIsNone(ws.weight_change_kg)
+        self.assertEqual(ws.weight_trend_score, -1)
+        self.assertIn("無體重記錄", ws.weight_trend_note)
+        self.assertAlmostEqual(ws.component_weights["weight_trend"], 0.0)
+        self.assertAlmostEqual(ws.component_weights["daily_average"], 0.60)
+        self.assertAlmostEqual(ws.component_weights["food_diversity"], 0.20)
+        self.assertAlmostEqual(ws.component_weights["record_completeness"], 0.20)
+
+    def test_weekly_score_explicit_flag_reweights_without_weight_data(self):
+        ws = score_weekly(
+            [80] * 7,
+            [2000] * 7,
+            2000,
+            food_category_coverage=0.6,
+            logged_days=7,
+            weight_change_kg=0.0,
+            weight_trend_available=False,
+        )
+        self.assertFalse(ws.weight_trend_available)
+        self.assertEqual(ws.weight_trend_score, -1)
+
     def test_all_zero_no_data(self):
         ws = score_weekly([0] * 7, [0] * 7, 0)
         self.assertGreaterEqual(ws.final_score, 0)

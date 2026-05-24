@@ -14,7 +14,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(_SCRIPT_DIR))
 
 from report_generator import (
-    generate_daily_report, generate_weekly_report,
+    generate_daily_report, generate_weekly_report, _get_week_weight_change,
 )
 from db_manager import DBManager
 
@@ -201,6 +201,15 @@ class TestWeeklyReport(unittest.TestCase):
 
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIn("體重", report)
+
+    def test_get_week_weight_change_uses_start_and_end_of_week_rows(self):
+        monday = date(2026, 5, 18)
+        sunday = monday + timedelta(days=6)
+        self._log_weight(80.0, monday)
+        self._log_weight(79.4, sunday)
+
+        change = _get_week_weight_change(self.db, self.user_id, monday, sunday)
+        self.assertAlmostEqual(change, -0.6, places=2)
 
     def test_weekly_report_persists_weekly_summary(self):
         for day in range(3):

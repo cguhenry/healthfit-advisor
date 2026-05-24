@@ -226,6 +226,17 @@ class TestParseLLMResponse(unittest.TestCase):
         # Low-confidence food is flagged
         low_conf = [f for f in result.foods if f.confidence_tier == "low"]
         self.assertEqual(len(low_conf), 1)
+        self.assertAlmostEqual(result.foods[0].calories, 260.0)
+        self.assertAlmostEqual(result.foods[1].protein_g, 18.0)
+
+    def test_to_dict_keeps_per_food_nutrition_fields(self):
+        result = parse_llm_response(AnalysisScenario.FOOD, MOCK_FOOD_RESPONSE)
+        payload = result.to_dict()
+
+        self.assertEqual(payload["foods"][0]["name"], "白飯")
+        self.assertEqual(payload["foods"][0]["calories"], 260.0)
+        self.assertEqual(payload["foods"][0]["protein_g"], 4.5)
+        self.assertEqual(payload["foods"][1]["fat_g"], 15.0)
 
     def test_parse_before_after_response(self):
         result = parse_llm_response(AnalysisScenario.BEFORE_AFTER, MOCK_BEFORE_AFTER_RESPONSE)
@@ -296,6 +307,7 @@ class TestIntegration(unittest.TestCase):
         output = format_analysis_result(result, remaining_calories=600)
         self.assertIn("熱量", output)
         self.assertIn("剩餘", output)
+        self.assertEqual(result.to_dict()["foods"][0]["calories"], 260.0)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ assert SPEC and SPEC.loader
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 run_intake = MODULE.run_intake
+DBManager = __import__("db_manager").DBManager
 
 
 class TestIntakeFlow(unittest.TestCase):
@@ -41,6 +43,15 @@ class TestIntakeFlow(unittest.TestCase):
             self.assertIsNotNone(result["active_plan_id"])
             self.assertEqual(result["profile"]["display_name"], "Henry")
             self.assertEqual(result["plan"]["goal_type"], "loss")
+
+            db = DBManager(tmp_path / "healthfit.db", fast_mode=True)
+            row = db.fetch_one(
+                "SELECT log_date, weight_kg FROM weight_logs WHERE user_id = ?",
+                (result["profile"]["user_id"],),
+            )
+            self.assertIsNotNone(row)
+            self.assertEqual(row["log_date"], date.today().isoformat())
+            self.assertAlmostEqual(float(row["weight_kg"]), 85.0)
 
     def test_intake_reports_missing_required_fields(self):
         with self.assertRaisesRegex(ValueError, "goal_weight_kg"):

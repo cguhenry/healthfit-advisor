@@ -499,22 +499,22 @@ def _get_week_weight_change(
     ws_str = week_start.isoformat()
     we_str = week_end.isoformat()
 
-    start_row = db.fetch_one(
+    end_of_week_row = db.fetch_one(
         """SELECT weight_kg FROM weight_logs
            WHERE user_id = ? AND log_date <= ?
            ORDER BY log_date DESC LIMIT 1""",
         (user_id, we_str),
     )
-    end_row = db.fetch_one(
+    start_of_week_row = db.fetch_one(
         """SELECT weight_kg FROM weight_logs
            WHERE user_id = ? AND log_date <= ?
            ORDER BY log_date DESC LIMIT 1""",
         (user_id, ws_str),
     )
-    if not start_row or not end_row:
+    if not end_of_week_row or not start_of_week_row:
         return None
 
-    return float(start_row["weight_kg"] or 0) - float(end_row["weight_kg"] or 0)
+    return float(end_of_week_row["weight_kg"] or 0) - float(start_of_week_row["weight_kg"] or 0)
 
 
 def _score_icon(score: int) -> str:

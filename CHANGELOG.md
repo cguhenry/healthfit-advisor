@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.2 - 2026-05-24
+
+Bugfix consolidation, schema cleanup, and Chinese deployment docs
+
+- Fixed Phase 3 → Phase 4 nutrition handoff so per-food nutrition is preserved in parser output and to_dict serialization
+- Updated the FOOD prompt template to require per-food calories/macros plus a summed meal total
+- Fixed calorie_tracker date handling at month boundaries and moved query-only connection paths to explicit closing()
+- Fixed weekly scoring sparse-data behavior so missing weight data is treated as unavailable input, not as 0.0 kg
+- Renamed misleading weekly-report internal variables in _get_week_weight_change()
+- Added score_events to scripts/db_schema.sql so the canonical schema is complete
+- Intake flow now writes the initial body weight into weight_logs during persistence
+- ProfileManager.load() is now read-only and no longer rewrites the profile file
+- Added tests/test_profile_manager.py
+- Localized README into Chinese and expanded installation / deployment guidance
+- Updated maintenance docs: SKILL.md, README.md, CHANGELOG.md, references/implementation-notes.md, projects/healthfit-advisor/PHASE_PROGRESS.md
+
+## 0.7.1 - 2026-05-24
+
+**Contract hardening, sparse-data fallback, and boundary clarification**
+
+- Added `references/phase3_output_schema.json` as the Phase 3 → Phase 4 handoff contract
+- Added `references/exercise_eat_back_policy.md` documenting the rationale behind loss/maintain/gain eat-back ratios
+- Updated `scripts/calorie_tracker.py`:
+  - added `normalize_phase3_analysis_payload()` so native Phase 3 output can be passed into Phase 4 without ad-hoc field mapping
+  - CLI `log` path now validates and normalizes payloads before DB write-back
+- Updated `scripts/scoring_engine.py`:
+  - weekly scoring now marks weight trend unavailable when no weight data exists
+  - the missing 20% weight-trend component is redistributed across the remaining components instead of silently scoring zero
+  - persisted weekly summary metadata now includes component weights and fallback notes
+- Updated `scripts/integration_test.py` to exercise the canonical Phase 3 → Phase 4 normalization path
+- Added tests for Phase 3 payload normalization and sparse weekly scoring fallback
+- Clarified SQLite-only implementation scope, GI fallback behavior, and notification env requirements in docs
+
 ## 0.7.0 - 2026-05-24
 
 **Phase 7: Cache, privacy tooling, and end-to-end smoke coverage**

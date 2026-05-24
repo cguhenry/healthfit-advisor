@@ -4,12 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
 from bwp_calculator import BWPCalculator
 from db_manager import DBManager
-from profile_manager import ProfileManager
+from profile_manager import DEFAULT_PROFILE_PATH, ProfileManager
 
 REQUIRED_PROFILE_FIELDS = {
     "display_name",
@@ -56,7 +57,7 @@ def _validate_payload(payload: Dict[str, Any]) -> None:
 def run_intake(payload: Dict[str, Any], *, persist: bool = True, profile_path: Path | None = None, db_path: Path | None = None, db_fast_mode: bool = False) -> Dict[str, Any]:
     _validate_payload(payload)
 
-    profile_manager = ProfileManager(profile_path or ProfileManager().profile_path)
+    profile_manager = ProfileManager(profile_path or DEFAULT_PROFILE_PATH)
     if profile_manager.exists():
         profile = profile_manager.update(
             display_name=payload["display_name"],
@@ -100,6 +101,13 @@ def run_intake(payload: Dict[str, Any], *, persist: bool = True, profile_path: P
     if persist:
         db = DBManager(db_path or DBManager().db_path, fast_mode=db_fast_mode)
         db.upsert_user_profile(result["profile"])
+        db.execute(
+            """
+            INSERT OR IGNORE INTO weight_logs (log_id, user_id, log_date, weight_kg)
+            VALUES (lower(hex(randomblob(16))), ?, ?, ?)
+            """,
+            (profile.user_id, date.today().isoformat(), profile.current_weight_kg),
+        )
         result["active_plan_id"] = db.save_active_plan(profile.user_id, result["plan"], payload.get("target_date"))
         result["persisted"] = True
     return result

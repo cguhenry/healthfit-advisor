@@ -107,7 +107,10 @@ class WeeklyScore:
     grade: str = "⭐ 優秀"
     weekly_calories_avg: float = 0.0
     goal_adherence_pct: float = 0.0
-    weight_change_kg: float = 0.0
+    weight_change_kg: Optional[float] = 0.0
+    weight_trend_available: bool = True
+    weight_trend_note: str = ""
+    component_weights: Dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +301,12 @@ def score_weekly(
     daily_calorie_averages: List[float],
     calorie_target: int,
     goal_adherence_pct: float = 0.0,
-    weight_change_kg: float = 0.0,
+    weight_change_kg: Optional[float] = 0.0,
     expected_weekly_change_kg: float = 0.0,
     food_category_coverage: float = 0.0,   # 0–1
     logged_days: int = 7,
     total_days: int = 7,
+    weight_trend_available: bool = True,
 ) -> WeeklyScore:
     """
     Calculate a weekly score from 7 days of data.
@@ -323,30 +327,49 @@ def score_weekly(
     """
     n = len(daily_scores) if daily_scores else 1
 
-    # ── 1. Daily average (50%) ─────────────────────────────────────
-    avg_daily = sum(daily_scores) / n
-    daily_component = avg_daily * 0.50
+    component_weights = {
+        "daily_average": 0.50,
+        "weight_trend": 0.20,
+        "food_diversity": 0.15,
+        "record_completeness": 0.15,
+    }
+    weight_trend_note = ""
+    if weight_change_kg is None:
+        weight_trend_available = False
 
-    # ── 2. Weight trend (20%) ──────────────────────────────────────
+    if not weight_trend_available:
+        component_weights = {
+            "daily_average": 0.60,
+            "weight_trend": 0.0,
+            "food_diversity": 0.20,
+            "record_completeness": 0.20,
+        }
+        weight_trend_note = "本週無體重記錄，已將原 20% 體重趨勢權重重新分配到其他三項。"
+
+    # ── 1. Daily average ───────────────────────────────────────────
+    avg_daily = sum(daily_scores) / n
+    daily_component = avg_daily * component_weights["daily_average"]
+
+    # ── 2. Weight trend ────────────────────────────────────────────
     actual_change = weight_change_kg if weight_change_kg is not None else 0.0
-    # Score based on how close actual change is to expected
-    if abs(expected_weekly_change_kg) > 0.01:
+    if not weight_trend_available:
+        trend_score = -1
+    elif abs(expected_weekly_change_kg) > 0.01:
         deviation = abs(actual_change - expected_weekly_change_kg)
         max_dev = max(abs(expected_weekly_change_kg) * 2, 0.5)
         trend_score = max(0, int(100 * (1 - min(deviation / max_dev, 1.0))))
     else:
-        # Maintaining weight: deviation from zero
         deviation = abs(actual_change)
         trend_score = max(0, int(100 * (1 - min(deviation / 0.5, 1.0))))
-    weight_trend_component = trend_score * 0.20
+    weight_trend_component = trend_score * component_weights["weight_trend"]
 
-    # ── 3. Food diversity (15%) ────────────────────────────────────
+    # ── 3. Food diversity ──────────────────────────────────────────
     diversity_score = int(food_category_coverage * 100)
-    diversity_component = diversity_score * 0.15
+    diversity_component = diversity_score * component_weights["food_diversity"]
 
-    # ── 4. Record completeness (15%) ───────────────────────────────
+    # ── 4. Record completeness ─────────────────────────────────────
     completeness_score = int((logged_days / total_days) * 100) if total_days > 0 else 0
-    completeness_component = completeness_score * 0.15
+    completeness_component = completeness_score * component_weights["record_completeness"]
 
     # ── Final ──────────────────────────────────────────────────────
     final = int(round(daily_component + weight_trend_component + diversity_component + completeness_component))
@@ -366,7 +389,10 @@ def score_weekly(
         grade=_classify_grade(final),
         weekly_calories_avg=round(cal_avg, 1),
         goal_adherence_pct=round(goal_adherence_pct, 1),
-        weight_change_kg=round(actual_change, 2),
+        weight_change_kg=round(actual_change, 2) if weight_change_kg is not None else None,
+        weight_trend_available=weight_trend_available,
+        weight_trend_note=weight_trend_note,
+        component_weights=component_weights,
     )
 
 
@@ -451,8 +477,11 @@ def persist_weekly_score(
         "daily_scores": weekly_score.daily_scores,
         "avg_daily_score": weekly_score.avg_daily_score,
         "weight_trend_score": weekly_score.weight_trend_score,
+        "weight_trend_available": weekly_score.weight_trend_available,
+        "weight_trend_note": weekly_score.weight_trend_note,
         "diversity_score": weekly_score.diversity_score,
         "completeness_score": weekly_score.completeness_score,
+        "component_weights": weekly_score.component_weights,
         "grade": weekly_score.grade,
     }, ensure_ascii=False)
 
@@ -735,6 +764,7 @@ def main() -> None:
             weight_change_kg=0,
             expected_weekly_change_kg=args.expected_weekly_change,
             logged_days=logged_days,
+            weight_trend_available=False,
         )
 
         print(f"{'='*50}")
@@ -743,6 +773,8 @@ def main() -> None:
         print(f"  每日分數：{ws.daily_scores}")
         print(f"  每日平均：{ws.avg_daily_score}")
         print(f"  體重趨勢分：{ws.weight_trend_score}")
+        if ws.weight_trend_note:
+            print(f"  備註：{ws.weight_trend_note}")
         print(f"  飲食多樣性分：{ws.diversity_score}")
         print(f"  記錄完整度分：{ws.completeness_score}")
         print(f"  ──────────────────")

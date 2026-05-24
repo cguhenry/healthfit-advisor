@@ -90,6 +90,15 @@ CREATE TABLE IF NOT EXISTS weekly_summaries (
     UNIQUE(user_id, week_start_date)
 );
 
+CREATE TABLE IF NOT EXISTS score_events (
+    event_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id TEXT REFERENCES users(user_id),
+    event_date DATE,
+    event_type VARCHAR(30),
+    points INTEGER,
+    description TEXT
+);
+
 -- Phase 6: 台灣FDA + USDA 食品營養資料庫快取
 CREATE TABLE IF NOT EXISTS food_nutrition_cache (
     cache_id       TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),

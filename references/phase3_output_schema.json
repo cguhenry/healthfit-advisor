@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://healthfit-advisor.local/references/phase3_output_schema.json",
+  "title": "HealthFit Phase 3 Food Analysis Output",
+  "description": "Contract for passing a Phase 3 food-analysis result into Phase 4 calorie tracking. Phase 4 accepts this native payload and normalizes it via calorie_tracker.normalize_phase3_analysis_payload().",
+  "type": "object",
+  "required": ["foods"],
+  "properties": {
+    "foods": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "estimated_g", "calories", "protein_g", "carb_g", "fat_g", "confidence"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "name_en": {"type": "string"},
+          "estimated_g": {"type": "number", "minimum": 0},
+          "calories": {"type": "number", "minimum": 0},
+          "protein_g": {"type": "number", "minimum": 0},
+          "carb_g": {"type": "number", "minimum": 0},
+          "fat_g": {"type": "number", "minimum": 0},
+          "fiber_g": {"type": "number", "minimum": 0},
+          "sodium_mg": {"type": "number", "minimum": 0},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "confidence_tier": {"type": "string", "enum": ["high", "medium", "low"]},
+          "size_reference": {"type": "string"},
+          "food_db_source": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "total_calories": {"type": "number", "minimum": 0},
+    "macros": {
+      "type": "object",
+      "properties": {
+        "protein_g": {"type": "number", "minimum": 0},
+        "carb_g": {"type": "number", "minimum": 0},
+        "fat_g": {"type": "number", "minimum": 0},
+        "fiber_g": {"type": "number", "minimum": 0},
+        "sodium_mg": {"type": "number", "minimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "confidence_tier": {"type": "string", "enum": ["high", "medium", "low"]},
+    "low_confidence_warnings": {"type": "array", "items": {"type": "string"}},
+    "nutrition_advice": {"type": "string"},
+    "remaining_after_meal": {"type": "number"},
+    "note": {"type": "string"},
+    "log_datetime": {"type": "string", "format": "date-time"},
+    "total_nutrition": {
+      "description": "Optional legacy alias accepted by Phase 4. Preferred native fields are total_calories + macros.",
+      "type": "object",
+      "properties": {
+        "calories": {"type": "number", "minimum": 0},
+        "protein_g": {"type": "number", "minimum": 0},
+        "carb_g": {"type": "number", "minimum": 0},
+        "fat_g": {"type": "number", "minimum": 0},
+        "fiber_g": {"type": "number", "minimum": 0},
+        "sodium_mg": {"type": "number", "minimum": 0},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -16,8 +16,9 @@ from __future__ import annotations
 import json
 import sys
 import uuid
+from contextlib import closing
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,6 +28,11 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from db_manager import DBManager
+
+PHASE3_TOP_LEVEL_ALIASES = {
+    "foods": ("foods", "consumed_foods"),
+    "total_nutrition": ("total_nutrition", "total_consumed"),
+}
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -75,6 +81,72 @@ class PeriodComparison:
     delta: Dict[str, Any]
 
 
+def _first_present(payload: Dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
+
+
+def normalize_phase3_analysis_payload(payload: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """
+    Normalize a Phase 3 analysis payload into the Phase 4 logging contract.
+
+    Accepted input shapes:
+    - Native Phase 3 output: foods + total_calories + macros + confidence
+    - Legacy aliases: consumed_foods + total_consumed / total_nutrition
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("Phase 3 payload must be a JSON object.")
+
+    foods_raw = _first_present(payload, *PHASE3_TOP_LEVEL_ALIASES["foods"])
+    if foods_raw is None:
+        raise ValueError("Phase 3 payload is missing 'foods'.")
+    if not isinstance(foods_raw, list):
+        raise ValueError("Phase 3 payload field 'foods' must be a list.")
+
+    normalized_foods: List[Dict[str, Any]] = []
+    for index, item in enumerate(foods_raw):
+        if not isinstance(item, dict):
+            raise ValueError(f"foods[{index}] must be an object.")
+        food_name = str(item.get("name") or "").strip()
+        if not food_name:
+            raise ValueError(f"foods[{index}].name is required.")
+        normalized_foods.append(
+            {
+                "name": food_name,
+                "estimated_g": float(item.get("estimated_g") or 0),
+                "calories": float(item.get("calories") or 0),
+                "protein_g": float(item.get("protein_g") or 0),
+                "carb_g": float(item.get("carb_g") or 0),
+                "fat_g": float(item.get("fat_g") or 0),
+                "fiber_g": float(item.get("fiber_g") or 0),
+                "sodium_mg": float(item.get("sodium_mg") or 0),
+                "confidence": float(item.get("confidence") or 0),
+                "food_db_source": item.get("food_db_source", "AI_EST"),
+            }
+        )
+
+    total_nutrition = _first_present(payload, *PHASE3_TOP_LEVEL_ALIASES["total_nutrition"])
+    if total_nutrition is None:
+        macros = payload.get("macros") if isinstance(payload.get("macros"), dict) else {}
+        total_nutrition = {
+            "calories": float(payload.get("total_calories") or 0),
+            "protein_g": float(macros.get("protein_g") or 0),
+            "carb_g": float(macros.get("carb_g") or 0),
+            "fat_g": float(macros.get("fat_g") or 0),
+            "fiber_g": float(macros.get("fiber_g") or 0),
+            "sodium_mg": float(macros.get("sodium_mg") or 0),
+            "confidence": float(payload.get("confidence") or 0),
+        }
+        if not any(total_nutrition.values()):
+            total_nutrition = None
+    elif not isinstance(total_nutrition, dict):
+        raise ValueError("Phase 3 payload field 'total_nutrition' must be an object.")
+
+    return normalized_foods, total_nutrition
+
+
 # ---------------------------------------------------------------------------
 # Meal logging
 # ---------------------------------------------------------------------------
@@ -97,6 +169,7 @@ def log_meal_analysis(
         meal_type: breakfast | lunch | dinner | snack.
         foods: List of dicts with name, estimated_g, calories, protein_g,
                carb_g, fat_g, fiber_g, sodium_mg, confidence.
+               Use normalize_phase3_analysis_payload() for native Phase 3 output.
         total_nutrition: Optional overall nutrition dict (logged as a summary row
                          with food_name "___MEAL_TOTAL___").
         log_datetime: ISO-8601 timestamp; defaults to now (UTC).
@@ -169,16 +242,15 @@ def _log_food_by_date(
     db: DBManager, user_id: str, log_date: str
 ) -> List[Dict[str, Any]]:
     """Return raw food_log rows for a given date (excluding ___MEAL_TOTAL___ rows)."""
-    return [
-        dict(row)
-        for row in db.connect().execute(
+    with closing(db.connect()) as conn:
+        rows = conn.execute(
             """SELECT * FROM food_logs
                WHERE user_id = ? AND date(log_datetime) = ?
                  AND food_name != '___MEAL_TOTAL___'
                ORDER BY log_datetime""",
             (user_id, log_date),
         ).fetchall()
-    ]
+    return [dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +433,7 @@ def get_history_comparison(
     today_totals = _daily_totals(td)
 
     # 1) vs yesterday
-    yday = td.replace(day=td.day - 1) if td.day > 1 else td
+    yday = td - timedelta(days=1)
     yday_totals = _daily_totals(yday)
     comparisons.append(
         PeriodComparison(
@@ -434,19 +506,20 @@ def get_recent_trend(
     """
     db.initialize()
     ed = end_date or date.today()
-    sd = ed.replace(day=ed.day - days + 1) if ed.day > days else ed
+    sd = ed - timedelta(days=days - 1)
 
-    rows = db.connect().execute(
-        """SELECT date(log_datetime) AS d,
-                  COALESCE(SUM(calories), 0)   AS calories,
-                  COALESCE(SUM(protein_g), 0)  AS protein_g
-           FROM food_logs
-           WHERE user_id = ? AND date(log_datetime) BETWEEN ? AND ?
-             AND food_name != '___MEAL_TOTAL___'
-           GROUP BY date(log_datetime)
-           ORDER BY d""",
-        (user_id, sd.isoformat(), ed.isoformat()),
-    ).fetchall()
+    with closing(db.connect()) as conn:
+        rows = conn.execute(
+            """SELECT date(log_datetime) AS d,
+                      COALESCE(SUM(calories), 0)   AS calories,
+                      COALESCE(SUM(protein_g), 0)  AS protein_g
+               FROM food_logs
+               WHERE user_id = ? AND date(log_datetime) BETWEEN ? AND ?
+                 AND food_name != '___MEAL_TOTAL___'
+               GROUP BY date(log_datetime)
+               ORDER BY d""",
+            (user_id, sd.isoformat(), ed.isoformat()),
+        ).fetchall()
 
     # Fill in missing days with zeros
     result_map: Dict[str, Dict] = {
@@ -496,16 +569,17 @@ def get_calorie_progress(
         protein_target = int(plan["protein_target_g"] or 0)
 
     # Per-meal breakdown (exclude ___MEAL_TOTAL___)
-    rows = db.connect().execute(
-        """SELECT meal_type,
-                  COALESCE(SUM(calories), 0)   AS calories,
-                  COALESCE(SUM(protein_g), 0)  AS protein_g
-           FROM food_logs
-           WHERE user_id = ? AND date(log_datetime) = ?
-             AND food_name != '___MEAL_TOTAL___'
-           GROUP BY meal_type""",
-        (user_id, sd),
-    ).fetchall()
+    with closing(db.connect()) as conn:
+        rows = conn.execute(
+            """SELECT meal_type,
+                      COALESCE(SUM(calories), 0)   AS calories,
+                      COALESCE(SUM(protein_g), 0)  AS protein_g
+               FROM food_logs
+               WHERE user_id = ? AND date(log_datetime) = ?
+                 AND food_name != '___MEAL_TOTAL___'
+               GROUP BY meal_type""",
+            (user_id, sd),
+        ).fetchall()
 
     meal_breakdown: Dict[str, Dict] = {}
     total_consumed = 0.0
@@ -635,8 +709,7 @@ def main() -> None:
 
     if args.command == "log":
         payload = json.loads(Path(args.json_file).read_text(encoding="utf-8"))
-        foods = payload.get("foods", payload.get("consumed_foods", []))
-        total = payload.get("total_nutrition", payload.get("total_consumed"))
+        foods, total = normalize_phase3_analysis_payload(payload)
         note = payload.get("note")
         ts = payload.get("log_datetime")
 

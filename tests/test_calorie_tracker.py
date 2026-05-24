@@ -26,8 +26,10 @@ from calorie_tracker import (
     get_history_comparison,
     get_recent_trend,
     log_meal_analysis,
+    normalize_phase3_analysis_payload,
     upsert_daily_summary,
 )
+from food_analyzer import AnalysisScenario, parse_llm_response
 
 
 class CalorieTrackerTestCase(unittest.TestCase):
@@ -132,6 +134,60 @@ class CalorieTrackerTestCase(unittest.TestCase):
         )
         self.assertAlmostEqual(row["ai_confidence"], 0.95, places=2)
 
+    def test_normalize_phase3_native_payload(self):
+        foods, total = normalize_phase3_analysis_payload(
+            {
+                "foods": self._sample_foods(),
+                "total_calories": 670,
+                "macros": {"protein_g": 41, "carb_g": 68, "fat_g": 24.5, "fiber_g": 4},
+                "confidence": 0.91,
+            }
+        )
+        self.assertEqual(len(foods), 3)
+        self.assertEqual(total["calories"], 670.0)
+        self.assertEqual(total["protein_g"], 41.0)
+
+    def test_normalize_phase3_rejects_missing_food_name(self):
+        with self.assertRaises(ValueError):
+            normalize_phase3_analysis_payload({"foods": [{"calories": 100}]})
+
+    def test_phase3_to_phase4_roundtrip_preserves_food_nutrition(self):
+        analysis = parse_llm_response(
+            AnalysisScenario.FOOD,
+            {
+                "foods": [
+                    {
+                        "name": "白飯",
+                        "estimated_g": 200,
+                        "calories": 260,
+                        "protein_g": 4.5,
+                        "carb_g": 58,
+                        "fat_g": 0.6,
+                        "confidence": 0.92,
+                    },
+                    {
+                        "name": "雞胸肉",
+                        "estimated_g": 120,
+                        "calories": 198,
+                        "protein_g": 36,
+                        "carb_g": 0,
+                        "fat_g": 4,
+                        "confidence": 0.89,
+                    },
+                ],
+                "total_calories": 458,
+                "macros": {"protein_g": 40.5, "carb_g": 58, "fat_g": 4.6},
+                "confidence": 0.88,
+                "nutrition_advice": "ok",
+            },
+        )
+        foods, total = normalize_phase3_analysis_payload(analysis.to_dict())
+        log_meal_analysis(self.db, self.user_id, "lunch", foods, total_nutrition=total)
+
+        summary = upsert_daily_summary(self.db, self.user_id, calorie_target=2000)
+        self.assertAlmostEqual(summary.total_calories, 458.0, places=1)
+        self.assertAlmostEqual(summary.total_protein_g, 40.5, places=1)
+
     # ── upsert_daily_summary ────────────────────────────────────────────
 
     def test_upsert_daily_summary_creates_new(self):
@@ -235,6 +291,30 @@ class CalorieTrackerTestCase(unittest.TestCase):
         comparisons = get_history_comparison(self.db, self.user_id, today=td)
         self.assertTrue(any("昨日" in c.period_label for c in comparisons))
 
+    def test_get_history_comparison_handles_cross_month_yesterday(self):
+        td = date(2026, 5, 1)
+        yday = td - timedelta(days=1)
+
+        ts_today = datetime(td.year, td.month, td.day, 12, 0, tzinfo=timezone.utc).isoformat()
+        ts_yday = datetime(yday.year, yday.month, yday.day, 12, 0, tzinfo=timezone.utc).isoformat()
+
+        log_meal_analysis(
+            self.db, self.user_id, "lunch",
+            [{"name": "today meal", "estimated_g": 200, "calories": 450, "protein_g": 25, "carb_g": 40, "fat_g": 12, "confidence": 0.9}],
+            log_datetime=ts_today,
+        )
+        log_meal_analysis(
+            self.db, self.user_id, "dinner",
+            [{"name": "yesterday meal", "estimated_g": 180, "calories": 380, "protein_g": 18, "carb_g": 42, "fat_g": 10, "confidence": 0.9}],
+            log_datetime=ts_yday,
+        )
+
+        comparisons = get_history_comparison(self.db, self.user_id, today=td)
+        vs_yesterday = [c for c in comparisons if "昨日" in c.period_label][0]
+
+        self.assertEqual(vs_yesterday.previous["date"], "2026-04-30")
+        self.assertAlmostEqual(float(vs_yesterday.previous["calories"]), 380.0)
+
     # ── get_recent_trend ────────────────────────────────────────────────
 
     def test_get_recent_trend_fills_missing_days(self):
@@ -256,6 +336,33 @@ class CalorieTrackerTestCase(unittest.TestCase):
     def test_get_recent_trend_custom_days(self):
         trend = get_recent_trend(self.db, self.user_id, days=3)
         self.assertEqual(len(trend), 3)
+
+    def test_get_recent_trend_handles_cross_month_range(self):
+        end_date = date(2026, 5, 5)
+        logged_day = date(2026, 4, 30)
+        ts = datetime(logged_day.year, logged_day.month, logged_day.day, 12, 0, tzinfo=timezone.utc).isoformat()
+        log_meal_analysis(
+            self.db, self.user_id, "lunch",
+            [{"name": "cross month meal", "estimated_g": 250, "calories": 520, "protein_g": 22, "carb_g": 68, "fat_g": 14, "confidence": 0.9}],
+            log_datetime=ts,
+        )
+
+        trend = get_recent_trend(self.db, self.user_id, days=7, end_date=end_date)
+
+        self.assertEqual(len(trend), 7)
+        self.assertEqual(trend[0]["date"], "2026-04-29")
+        self.assertEqual(trend[-1]["date"], "2026-05-05")
+        nonzero = [d for d in trend if d["calories"] > 0]
+        self.assertEqual(len(nonzero), 1)
+        self.assertEqual(nonzero[0]["date"], "2026-04-30")
+        self.assertAlmostEqual(nonzero[0]["calories"], 520.0)
+
+    def test_get_recent_trend_handles_exact_day_boundary(self):
+        end_date = date(2026, 5, 7)
+        trend = get_recent_trend(self.db, self.user_id, days=7, end_date=end_date)
+        self.assertEqual(len(trend), 7)
+        self.assertEqual(trend[0]["date"], "2026-05-01")
+        self.assertEqual(trend[-1]["date"], "2026-05-07")
 
     # ── get_calorie_progress ────────────────────────────────────────────
 

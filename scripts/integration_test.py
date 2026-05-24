@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from calorie_tracker import log_meal_analysis, upsert_daily_summary
+from calorie_tracker import log_meal_analysis, normalize_phase3_analysis_payload, upsert_daily_summary
 from diet_dialogue import build_recommendation
 from exercise_tracker import adjust_daily_calorie_target, log_exercise
 from food_analyzer import AnalysisScenario, parse_llm_response
@@ -112,29 +112,15 @@ def run_smoke_test() -> dict[str, Any]:
         analysis = parse_llm_response(AnalysisScenario.FOOD, _mock_food_response())
         result["steps"].append({"phase": 3, "status": "ok", "foods": len(analysis.foods)})
 
-        food_rows = analysis.raw_llm_response.get("foods", []) if analysis.raw_llm_response else []
+        normalized_foods, normalized_total = normalize_phase3_analysis_payload(
+            analysis.raw_llm_response or _mock_food_response()
+        )
         log_meal_analysis(
             db,
             user_id,
             "lunch",
-            [
-                {
-                    "name": food["name"],
-                    "estimated_g": food.get("estimated_g", 0),
-                    "calories": food.get("calories", 0),
-                    "protein_g": food.get("protein_g", 0),
-                    "carb_g": food.get("carb_g", 0),
-                    "fat_g": food.get("fat_g", 0),
-                    "confidence": food.get("confidence", 0),
-                }
-                for food in food_rows
-            ],
-            total_nutrition={
-                "calories": analysis.total_nutrition.calories if analysis.total_nutrition else 0,
-                "protein_g": analysis.total_nutrition.protein_g if analysis.total_nutrition else 0,
-                "carb_g": analysis.total_nutrition.carb_g if analysis.total_nutrition else 0,
-                "fat_g": analysis.total_nutrition.fat_g if analysis.total_nutrition else 0,
-            },
+            normalized_foods,
+            total_nutrition=normalized_total,
         )
         summary = upsert_daily_summary(db, user_id, calorie_target=intake_result["plan"]["daily_calorie_target"])
         result["steps"].append({"phase": 4, "status": "ok", "daily_calories": summary.total_calories})

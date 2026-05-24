@@ -35,10 +35,7 @@ class ProfileManager:
 
     def load(self) -> UserProfile:
         payload = json.loads(self.profile_path.read_text(encoding="utf-8"))
-        profile = UserProfile(**payload)
-        profile.touch()
-        self.save(profile)
-        return profile
+        return UserProfile(**payload)
 
     def save(self, profile: UserProfile) -> None:
         self.profile_path.parent.mkdir(parents=True, exist_ok=True)
