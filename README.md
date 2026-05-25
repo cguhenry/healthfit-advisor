@@ -53,6 +53,14 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
 
 核心流程目前以標準函式庫為主，沒有重度第三方依賴。
 
+若要使用 meal_planner.py --pdf，需額外安裝 PDF 可選依賴：
+
+    pip install "fpdf2>=2.7"
+
+或用 package metadata：
+
+    pip install .[pdf]
+
 ## 安裝方式
 
 ### 方式 A：當作本機 Python 專案使用
@@ -101,10 +109,22 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
 
 1. 把 repo 放到 ~/.openclaw/workspace/skills/healthfit-advisor/
 2. 保持 SKILL.md 與 scripts/ 在 skill root
-3. 讓 agent 透過 skill 直接呼叫腳本
+3. 讓 agent 優先透過統一入口 scripts/healthfit.py 呼叫功能
 4. 本機資料會落在：
    - ~/.healthfit/profile.json
    - ~/.healthfit/healthfit.db
+
+### Agent manifests
+
+agents/ 目前分為三份 manifest，避免不同平台共用一個名稱不清的檔案：
+
+- agents/openclaw.yaml: OpenClaw routing metadata
+- agents/hermes.yaml: Hermes intent manifest
+- agents/openai.yaml: OpenAI Assistants / Responses description
+
+三者都統一指向：
+
+    python3 scripts/healthfit.py
 
 ### 3. Docker / NAS / 自託管部署建議
 
@@ -169,6 +189,20 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
 
 ## 常用操作
 
+### 統一 CLI 入口
+
+建議優先使用單一入口，而不是直接記每個 phase 腳本名稱：
+
+    python3 scripts/healthfit.py intake examples/intake_payload.json
+    python3 scripts/healthfit.py log meal examples/mock_responses/sample_meal.json --user-id <user_id> --meal-type lunch
+    python3 scripts/healthfit.py report daily --user-id <user_id>
+    python3 scripts/healthfit.py report weekly --user-id <user_id> --week-start 2026-05-19
+    python3 scripts/healthfit.py plan --cuisine 台式 --meal-preference balanced
+    python3 scripts/healthfit.py gi classify --food "白米飯"
+    python3 scripts/healthfit.py alert check --json
+
+這層 wrapper 目前是 thin dispatcher，不重寫原有 phase script 邏輯；目的是讓 CLI、agent manifest、文件三者共享同一個穩定入口。
+
 ### 外食 / 菜單建議
 
     python3 scripts/diet_dialogue.py --cuisine 日式 --location 餐廳 --meal 晚餐 --calories 1800
@@ -204,6 +238,8 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
     python3 scripts/gi_guide.py classify --food "鹹水雞" --no-llm
     python3 scripts/gi_guide.py classify --food "鹹水雞" --no-db
 
+GI LLM 快取 TTL 比對已改成 timezone-aware UTC timestamp，避免 datetime.utcnow() 在 Python 3.12+ 的棄用警告與後續移除問題。
+
 ### 報表與評分
 
     python3 scripts/scoring_engine.py score --user-id <user_id> --date 2026-05-24
@@ -236,6 +272,16 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
 若要把本週計劃寫入 SQLite：
 
     python3 scripts/meal_planner.py plan --persist
+
+若要匯出 PDF：
+
+    python3 scripts/meal_planner.py plan --pdf --output meal_plan.pdf
+
+PDF 匯出注意事項：
+
+- fpdf2 是 optional dependency，不是 core install 的一部分。
+- 需有可讀取的 CJK 字型；可安裝 fonts-wqy-zenhei / noto-cjk，或指定 HEALTHFIT_PDF_FONT=/path/to/font.ttf
+- 產出前會移除 emoji 等常見字型缺字符號，避免 PDF 內出現空方塊或直接拋錯。
 
 ## Phase 3 → Phase 4 交接規格
 

@@ -1,2 +1,5 @@
 # Phase 1 intentionally uses only the Python standard library.
 # Add optional dependencies here in later phases when runtime needs them.
+#
+# Optional PDF export support:
+#   pip install "fpdf2>=2.7"

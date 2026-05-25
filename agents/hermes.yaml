@@ -1,0 +1,56 @@
+name: healthfit-advisor
+version: "0.1.0"
+platform: hermes
+display_name: "HealthFit Advisor"
+description: "Hermes-facing manifest for HealthFit Advisor workflows."
+entrypoint: "python3 scripts/healthfit.py"
+default_intent: "intake"
+
+intents:
+  - name: intake
+    description: "Collect profile inputs and calculate safe calorie/macro targets."
+    command: "python3 scripts/healthfit.py intake"
+  - name: log_meal
+    description: "Persist a meal analysis payload into the calorie tracker."
+    command: "python3 scripts/healthfit.py log meal"
+  - name: daily_report
+    description: "Generate a daily report."
+    command: "python3 scripts/healthfit.py report daily"
+  - name: weekly_report
+    description: "Generate a weekly report."
+    command: "python3 scripts/healthfit.py report weekly"
+  - name: meal_plan
+    description: "Generate a meal plan."
+    command: "python3 scripts/healthfit.py plan"
+  - name: gi
+    description: "Lookup GI guidance for a food."
+    command: "python3 scripts/healthfit.py gi classify"
+  - name: menu
+    description: "Generate menu advice from a structured payload."
+    command: "python3 scripts/healthfit.py menu"
+  - name: alert_check
+    description: "Run health alert checks."
+    command: "python3 scripts/healthfit.py alert check"
+
+routing_hints:
+  - "減重"
+  - "增肌"
+  - "熱量"
+  - "卡路里"
+  - "飲食計畫"
+  - "體重目標"
+  - "外食"
+  - "超商"
+  - "日報"
+  - "週報"
+  - "GI"
+  - "升糖指數"
+
+environment:
+  HEALTHFIT_DB_PATH: "~/.healthfit/healthfit.db"
+  HEALTHFIT_PROFILE: "~/.healthfit/profile.json"
+  HEALTHFIT_GI_MODEL: ""
+  HEALTHFIT_GI_API_KEY: ""
+  HEALTHFIT_MEAL_PLAN_MODEL: ""
+  HEALTHFIT_MEAL_PLAN_API_KEY: ""
+  HEALTHFIT_PDF_FONT: ""

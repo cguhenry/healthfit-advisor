@@ -2,6 +2,7 @@
 """Tests for Phase 6 meal_planner.py."""
 
 import json
+import io
 import sys
 import tempfile
 import unittest
@@ -14,6 +15,9 @@ sys.path.insert(0, str(_SKILL_DIR))
 
 from scripts.db_manager import DBManager
 from scripts.meal_planner import (
+    _configure_pdf_fonts,
+    _sanitize_pdf_text,
+    export_plan_pdf,
     generate_meal_plan,
     generate_optimized_meal_plan,
     format_meal_plan,
@@ -149,6 +153,105 @@ class TestFormatMealPlan(unittest.TestCase):
         plan = generate_meal_plan()
         text = format_meal_plan(plan)
         self.assertIn("kcal", text)
+
+
+class _FakePDF:
+    def __init__(self):
+        self.font_calls = []
+        self.cells = []
+        self.multi_cells = []
+        self.output_path = None
+
+    def set_auto_page_break(self, *args, **kwargs):
+        return None
+
+    def add_font(self, family, style="", fname=None, **kwargs):
+        self.font_calls.append((family, style, fname, kwargs))
+
+    def add_page(self, *args, **kwargs):
+        return None
+
+    def set_fill_color(self, *args, **kwargs):
+        return None
+
+    def rect(self, *args, **kwargs):
+        return None
+
+    def set_font(self, *args, **kwargs):
+        return None
+
+    def set_text_color(self, *args, **kwargs):
+        return None
+
+    def set_y(self, *args, **kwargs):
+        return None
+
+    def set_xy(self, *args, **kwargs):
+        return None
+
+    def set_x(self, *args, **kwargs):
+        return None
+
+    def cell(self, *args, **kwargs):
+        if len(args) >= 3:
+            self.cells.append(args[2])
+        elif "text" in kwargs:
+            self.cells.append(kwargs["text"])
+
+    def multi_cell(self, *args, **kwargs):
+        if len(args) >= 3:
+            self.multi_cells.append(args[2])
+        elif "text" in kwargs:
+            self.multi_cells.append(kwargs["text"])
+
+    def ln(self, *args, **kwargs):
+        return None
+
+    def get_y(self):
+        return 20
+
+    def output(self, path):
+        self.output_path = path
+
+
+class TestPdfExport(unittest.TestCase):
+    def test_sanitize_pdf_text_strips_emoji_and_replaces_bullet(self):
+        cleaned = _sanitize_pdf_text("🔥 蛋白質•補充️")
+        self.assertNotIn("🔥", cleaned)
+        self.assertNotIn("️", cleaned)
+        self.assertIn("-", cleaned)
+
+    def test_configure_pdf_fonts_uses_env_font_without_uni_flag(self):
+        pdf = _FakePDF()
+        with tempfile.NamedTemporaryFile(suffix=".ttf") as font_file:
+            with mock.patch.dict("os.environ", {"HEALTHFIT_PDF_FONT": font_file.name}, clear=False):
+                family, bold_family = _configure_pdf_fonts(pdf)
+        self.assertEqual((family, bold_family), ("CJK", "CJK"))
+        self.assertEqual(len(pdf.font_calls), 2)
+        self.assertTrue(all("uni" not in kwargs for _, _, _, kwargs in pdf.font_calls))
+
+    def test_export_plan_pdf_reports_missing_font_clearly(self):
+        plan = generate_meal_plan()
+        stderr = io.StringIO()
+        with mock.patch("pathlib.Path.exists", return_value=False):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                with mock.patch("sys.stderr", stderr):
+                    export_plan_pdf(plan, "ignored.pdf")
+        self.assertIn("PDF export requires a CJK font", stderr.getvalue())
+
+    def test_export_plan_pdf_sanitizes_rendered_text(self):
+        plan = generate_meal_plan()
+        fake_pdf = _FakePDF()
+        with mock.patch("fpdf.FPDF", return_value=fake_pdf):
+            with tempfile.NamedTemporaryFile(suffix=".ttf") as font_file:
+                with mock.patch.dict("os.environ", {"HEALTHFIT_PDF_FONT": font_file.name}, clear=False):
+                    export_plan_pdf(plan, "meal-plan.pdf")
+        rendered = "".join(fake_pdf.cells + fake_pdf.multi_cells)
+        self.assertNotIn("🔥", rendered)
+        self.assertNotIn("💪", rendered)
+        self.assertNotIn("💡", rendered)
+        self.assertNotIn("🛒", rendered)
+        self.assertNotIn("📦", rendered)
 
 
 class TestVarietyAndRotation(unittest.TestCase):

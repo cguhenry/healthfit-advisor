@@ -26,7 +26,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Optional
 from urllib import error as urllib_error
@@ -248,7 +248,7 @@ def _estimate_gi_from_nutrition(food: NutritionInfo) -> Optional[dict]:
 
 
 def _load_cached_llm_estimate(food_name: str, db: DBManager) -> Optional[dict]:
-    cutoff = (datetime.utcnow() - timedelta(days=GI_LLM_CACHE_TTL_DAYS)).isoformat(sep=" ")
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=GI_LLM_CACHE_TTL_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
     row = db.fetch_one(
         """
         SELECT raw_json

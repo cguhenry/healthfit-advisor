@@ -1,5 +1,35 @@
+name: healthfit-advisor
+version: "0.1.0"
+platform: openai
+description: "OpenAI Assistants / Responses manifest for HealthFit Advisor."
+
 interface:
   display_name: "HealthFit Advisor"
   short_description: "健康減重、增肌與熱量規劃技能"
-  default_prompt: "Use $healthfit-advisor to build or refine a safe weight-loss, maintenance, or muscle-gain plan."
+  default_prompt: "Use HealthFit Advisor to intake profile data, plan calories/macros, log meals, generate reports, and provide GI-aware food guidance."
 
+tools:
+  - name: intake
+    description: "建立或更新使用者健康檔案，計算每日熱量與巨量營養素目標。"
+    entry: "python3 scripts/healthfit.py intake"
+  - name: log_meal
+    description: "記錄一餐的食物攝取。"
+    entry: "python3 scripts/healthfit.py log meal"
+  - name: daily_report
+    description: "產生每日飲食摘要與評分報告。"
+    entry: "python3 scripts/healthfit.py report daily"
+  - name: weekly_report
+    description: "產生每週飲食回顧與週評分。"
+    entry: "python3 scripts/healthfit.py report weekly"
+  - name: meal_plan
+    description: "產生七天飲食計劃。"
+    entry: "python3 scripts/healthfit.py plan"
+  - name: check_gi
+    description: "查詢食物 GI 與替換建議。"
+    entry: "python3 scripts/healthfit.py gi classify"
+  - name: menu_suggest
+    description: "推薦外食菜單。"
+    entry: "python3 scripts/healthfit.py menu"
+  - name: alert_check
+    description: "執行健康警示檢查。"
+    entry: "python3 scripts/healthfit.py alert check"

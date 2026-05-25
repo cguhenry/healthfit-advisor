@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.6 - 2026-05-25
+
+CLI unification and agent manifest expansion
+
+- Replaced datetime.utcnow() in scripts/gi_guide.py with timezone-aware UTC handling for GI cache cutoff timestamps
+- Added scripts/healthfit.py as the unified operator-facing CLI entry point
+- Added tests/test_healthfit_cli.py covering dispatcher routing for intake, meal logging, reports, GI lookup, and alerts
+- Split agent metadata into agents/openclaw.yaml, agents/hermes.yaml, and an expanded agents/openai.yaml
+- Updated README deployment and usage docs to point manifests and human operators at the unified CLI entry point
+
+## 0.7.5 - 2026-05-24
+
+Meal planner PDF export hardening
+
+- Removed the invalid fpdf.pyfunctions.CJK fallback from scripts/meal_planner.py
+- Removed deprecated uni=True font registration for fpdf2
+- Added explicit CJK font discovery via HEALTHFIT_PDF_FONT or common system font paths
+- PDF export now fails with a clear stderr message when no readable CJK font is available
+- Added PDF text sanitization to strip emoji/symbol glyphs that common CJK fonts do not render reliably
+- Declared fpdf2>=2.7 as an optional PDF dependency in pyproject.toml and documented the install path in README.md
+- Added regression tests for font registration, missing-font failure, and PDF text sanitization
+
 ## 0.7.4 - 2026-05-24
 
 Meal-plan optimisation and persistence

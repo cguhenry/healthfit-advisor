@@ -23,8 +23,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import re
+import sys
+import unicodedata
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
@@ -795,6 +796,60 @@ def format_meal_plan(plan: dict) -> str:
     return "\n".join(lines)
 
 
+def _sanitize_pdf_text(value: Any) -> str:
+    """Strip emoji/symbol glyphs that common CJK fonts or PDF core fonts cannot render."""
+    text = str(value).replace("•", "-")
+    cleaned: list[str] = []
+    for char in text:
+        if ord(char) in (0x200D, 0xFE0F):
+            continue
+        if unicodedata.category(char) in {"So", "Cs"}:
+            continue
+        cleaned.append(char)
+    return "".join(cleaned)
+
+
+def _configure_pdf_fonts(pdf: Any) -> tuple[str, str]:
+    """Register a CJK-capable font for PDF export or raise a clear setup error."""
+    custom_font = os.environ.get("HEALTHFIT_PDF_FONT", "").strip()
+    candidates: list[Path] = []
+    if custom_font:
+        candidates.append(Path(custom_font).expanduser())
+    candidates.extend(
+        [
+            Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+            Path("/usr/share/fonts/truetype/arphic/uming.ttc"),
+            Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        ]
+    )
+
+    seen: set[Path] = set()
+    for font_path in candidates:
+        if font_path in seen:
+            continue
+        seen.add(font_path)
+        if not font_path.exists():
+            continue
+        try:
+            pdf.add_font("CJK", style="", fname=str(font_path))
+            pdf.add_font("CJK", style="B", fname=str(font_path))
+            return "CJK", "CJK"
+        except Exception:
+            continue
+
+    if custom_font:
+        raise RuntimeError(
+            "PDF export requires a CJK font. HEALTHFIT_PDF_FONT was set but not loadable: "
+            f"{custom_font}. Install fonts-wqy-zenhei or Noto CJK, or point HEALTHFIT_PDF_FONT "
+            "to a readable .ttf/.ttc/.otf file."
+        )
+
+    raise RuntimeError(
+        "PDF export requires a CJK font, but none was found. Install fonts-wqy-zenhei or Noto CJK, "
+        "or set HEALTHFIT_PDF_FONT=/path/to/font.ttf"
+    )
+
+
 def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
     """Export meal plan to a formatted PDF file."""
     try:
@@ -806,30 +861,11 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    F = "Helvetica"; FB = "Helvetica"
-    # Try CJK font; fall back gracefully
     try:
-        for _font_path in [
-            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-            "/usr/share/fonts/truetype/arphic/uming.ttc",
-            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        ]:
-            if Path(_font_path).exists():
-                pdf.add_font("CJK", style="", fname=_font_path, uni=True)
-                pdf.add_font("CJK", style="B", fname=_font_path, uni=True)
-                F = "CJK"; FB = "CJK"
-                break
-    except Exception:
-        pass
-
-    try:
-        from fpdf.pyfunctions import CJK as _cjk
-        if F == "Helvetica":
-            pdf.add_font("CJK", style="", fname=_cjk.__file__, uni=True)
-            pdf.add_font("CJK", style="B", fname=_cjk.__file__, uni=True)
-            F = "CJK"; FB = "CJK"
-    except Exception:
-        pass
+        F, FB = _configure_pdf_fonts(pdf)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return
     S = plan["summary"]
     cuisine = S["cuisine"]; meal_pref = S["meal_preference"]
     cal_tgt = S["daily_calorie_target"]; avg_cal = S["avg_daily_calories"]; avg_prot = S["avg_daily_protein_g"]
@@ -839,9 +875,9 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
     pdf.set_fill_color(0x1A, 0x7A, 0x5C)
     pdf.rect(0, 0, 210, 50, "F")
     pdf.set_font(FB, size=22); pdf.set_text_color(255, 255, 255); pdf.set_y(15)
-    pdf.cell(0, 12, "一週飲食計劃", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 12, _sanitize_pdf_text("一週飲食計劃"), align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font(F, size=13)
-    pdf.cell(0, 8, f"{cuisine} · {meal_pref}  |  {cal_tgt} kcal/天",
+    pdf.cell(0, 8, _sanitize_pdf_text(f"{cuisine} · {meal_pref}  |  {cal_tgt} kcal/天"),
              align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(8); pdf.set_text_color(0, 0, 0)
     pdf.set_fill_color(240, 248, 240); pdf.set_font(FB, size=11)
@@ -851,7 +887,7 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
         ("平均蛋白質", f"{avg_prot} g"),
     ]):
         x = 10 + (i % 3) * 63
-        pdf.set_xy(x, pdf.get_y()); pdf.cell(61, 10, f"{lbl}: {val}", border=1, align="C", fill=True)
+        pdf.set_xy(x, pdf.get_y()); pdf.cell(61, 10, _sanitize_pdf_text(f"{lbl}: {val}"), border=1, align="C", fill=True)
     pdf.ln(16)
 
     # ── Daily pages ─────────────────────────────────────────────
@@ -867,21 +903,21 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
         day_name = day["day"]
         total_cal = day["total_calories"]
         total_prot = day["total_protein_g"]
-        pdf.cell(0, 10, f"  {day_name}  |  {total_cal} kcal  |  蛋白質 {total_prot}g",
+        pdf.cell(0, 10, _sanitize_pdf_text(f"  {day_name}  |  {total_cal} kcal  |  蛋白質 {total_prot}g"),
                  new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4); pdf.set_text_color(0,0,0)
         for mt, meal in day["meals"].items():
             pdf.set_font(FB, size=11); pdf.set_x(12)
             meal_name = meal["name"]
-            pdf.multi_cell(186, 7, f"{meal_lbl.get(mt,mt)}：{meal_name}", new_x="LMARGIN", new_y="NEXT")
+            pdf.multi_cell(186, 7, _sanitize_pdf_text(f"{meal_lbl.get(mt,mt)}：{meal_name}"), new_x="LMARGIN", new_y="NEXT")
             pdf.set_font(F, size=10); pdf.set_x(18)
             meal_cal = meal["calories"]; meal_prot = meal["protein_g"]
-            pdf.cell(0, 6, f"  🔥 {meal_cal} kcal  |  💪 蛋白質 {meal_prot}g",
+            pdf.cell(0, 6, _sanitize_pdf_text(f"  🔥 {meal_cal} kcal  |  💪 蛋白質 {meal_prot}g"),
                      new_x="LMARGIN", new_y="NEXT")
             if meal.get("note"):
                 pdf.set_x(18); pdf.set_font(F, size=9); pdf.set_text_color(80,80,80)
                 note = meal["note"]
-                pdf.multi_cell(174, 5, f"  💡 {note}", new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(174, 5, _sanitize_pdf_text(f"  💡 {note}"), new_x="LMARGIN", new_y="NEXT")
                 pdf.set_text_color(0,0,0)
             pdf.ln(2)
 
@@ -889,19 +925,19 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
     pdf.add_page()
     pdf.set_fill_color(0x1A,0x7A,0x5C); pdf.rect(0, pdf.get_y(), 210, 10, "F")
     pdf.set_font(FB, size=13); pdf.set_text_color(255,255,255)
-    pdf.cell(0, 10, "  🛒 採購清單", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, _sanitize_pdf_text("  🛒 採購清單"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(0,0,0); pdf.ln(3)
     for cat in ["蛋白質","蔬菜","水果","主食","飲料/調味","堅果/種子"]:
         items = plan["shopping_list"].get(cat, [])
         if not items: continue
         pdf.set_font(FB, size=11); pdf.set_x(12)
-        pdf.cell(0, 7, f"📦 {cat}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 7, _sanitize_pdf_text(f"📦 {cat}"), new_x="LMARGIN", new_y="NEXT")
         pdf.set_font(F, size=10)
         half = (len(items)+1)//2; c1, c2 = items[:half], items[half:]
         for i, item in enumerate(c1):
             y = pdf.get_y()+6; pdf.set_xy(16, y)
-            pdf.cell(87, 6, f"  • {item}")
-            if i < len(c2): pdf.cell(87, 6, f"  • {c2[i]}")
+            pdf.cell(87, 6, _sanitize_pdf_text(f"  • {item}"))
+            if i < len(c2): pdf.cell(87, 6, _sanitize_pdf_text(f"  • {c2[i]}"))
             pdf.ln(6)
         pdf.ln(2)
 

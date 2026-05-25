@@ -148,6 +148,7 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
 - Weekly meal plans now support an LLM-optimised path driven by user history, macro targets, and dietary restrictions; template mode remains the guaranteed fallback.
 - Optimised meal plans validate daily calories (±5%), protein floor (>=85% target), and weekly variety (same dish <=2 times).
 - Meal plan optimisation requires `HEALTHFIT_MEAL_PLAN_MODEL` and `HEALTHFIT_MEAL_PLAN_API_KEY` (or `OPENAI_API_KEY`); optional overrides: `HEALTHFIT_MEAL_PLAN_API_URL`, `HEALTHFIT_MEAL_PLAN_TIMEOUT_SECONDS`.
+- PDF export from meal_planner.py --pdf is optional and requires fpdf2>=2.7 plus a readable CJK font. Use system fonts (fonts-wqy-zenhei / noto-cjk) or set HEALTHFIT_PDF_FONT=/path/to/font.ttf.
 - Health alerts run on-demand or via cron; real-time push requires the notification delivery layer to be configured.
 - Discord delivery uses webhooks; LINE delivery uses Messaging API.
 - Required env vars:

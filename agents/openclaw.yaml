@@ -1,0 +1,166 @@
+name: healthfit-advisor
+version: "0.1.0"
+platform: openclaw
+display_name: "HealthFit Advisor"
+description: "健康減重、增肌、維持體重與飲食追蹤技能。"
+entrypoint: "python3 scripts/healthfit.py"
+default_action: "intake"
+default_prompt: "Use HealthFit Advisor to intake profile data, track meals, generate reports, and provide GI-aware diet guidance."
+
+capabilities:
+  - intake
+  - meal_logging
+  - reporting
+  - meal_planning
+  - gi_guidance
+  - menu_suggestion
+  - alerts
+  - notifications
+
+actions:
+  - name: intake
+    description: "建立或更新使用者健康檔案，計算每日熱量與巨量營養素目標。"
+    entry: "python3 scripts/healthfit.py intake"
+    input_schema:
+      type: object
+      required: [display_name, gender, age, height_cm, current_weight_kg, goal_weight_kg, activity_level, target_weeks]
+      properties:
+        display_name: { type: string }
+        gender: { type: string, enum: [M, F, X] }
+        age: { type: integer, minimum: 1 }
+        height_cm: { type: number, exclusiveMinimum: 0 }
+        current_weight_kg: { type: number, exclusiveMinimum: 0 }
+        goal_weight_kg: { type: number, exclusiveMinimum: 0 }
+        activity_level: { type: string, enum: [sedentary, light, moderate, active, very_active] }
+        target_weeks: { type: integer, minimum: 1 }
+        ethnicity: { type: string, default: east_asian }
+        risk_flags:
+          type: array
+          items: { type: string, enum: [minor, pregnancy, chronic_disease, eating_disorder] }
+    output_schema:
+      type: object
+      properties:
+        profile: { type: object }
+        plan: { type: object }
+        persisted: { type: boolean }
+        active_plan_id:
+          anyOf:
+            - { type: string }
+            - { type: "null" }
+
+  - name: log_meal
+    description: "記錄一餐的食物攝取，支援 Phase 3 視覺分析輸出或手動準備的 JSON payload。"
+    entry: "python3 scripts/healthfit.py log meal"
+    input_schema:
+      type: object
+      required: [user_id, meal_type, json_file]
+      properties:
+        user_id: { type: string }
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack] }
+        json_file: { type: string, description: "Phase 3 analysis JSON path." }
+        db_path: { type: string }
+
+  - name: daily_report
+    description: "產生今日或指定日期的飲食摘要與評分報告。"
+    entry: "python3 scripts/healthfit.py report daily"
+    input_schema:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string }
+        date: { type: string, description: "YYYY-MM-DD" }
+        db_path: { type: string }
+        json: { type: boolean, default: false }
+
+  - name: weekly_report
+    description: "產生本週或指定週的飲食回顧與週評分。"
+    entry: "python3 scripts/healthfit.py report weekly"
+    input_schema:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string }
+        week_start: { type: string, description: "YYYY-MM-DD Monday" }
+        db_path: { type: string }
+        json: { type: boolean, default: false }
+
+  - name: meal_plan
+    description: "產生七天飲食計劃，支援 LLM 最佳化或 template 模式。"
+    entry: "python3 scripts/healthfit.py plan"
+    input_schema:
+      type: object
+      properties:
+        calories: { type: integer }
+        cuisine: { type: string }
+        meal_preference: { type: string, enum: [balanced, high_protein, light] }
+        restrictions: { type: string }
+        template_only: { type: boolean, default: false }
+        persist: { type: boolean, default: false }
+        json: { type: boolean, default: false }
+        pdf: { type: boolean, default: false }
+        output: { type: string }
+
+  - name: check_gi
+    description: "查詢食物的升糖指數（GI）與替換建議。"
+    entry: "python3 scripts/healthfit.py gi classify"
+    input_schema:
+      type: object
+      required: [food]
+      properties:
+        food: { type: string }
+        json: { type: boolean, default: false }
+        db_path: { type: string }
+        no_db: { type: boolean, default: false }
+        no_llm: { type: boolean, default: false }
+
+  - name: menu_suggest
+    description: "依照料理類型、用餐地點與熱量缺口推薦外食菜單。"
+    entry: "python3 scripts/healthfit.py menu"
+    input_schema:
+      type: object
+      required: [payload]
+      properties:
+        payload: { type: string, description: "JSON request file path for menu_advisor.py" }
+        format: { type: string, enum: [json, text], default: text }
+
+  - name: alert_check
+    description: "執行健康警示檢查。"
+    entry: "python3 scripts/healthfit.py alert check"
+    input_schema:
+      type: object
+      properties:
+        date: { type: string, description: "YYYY-MM-DD" }
+        json: { type: boolean, default: false }
+
+triggers:
+  keywords:
+    - "減重"
+    - "增肌"
+    - "熱量"
+    - "卡路里"
+    - "飲食計劃"
+    - "體重目標"
+    - "要吃什麼"
+    - "外食"
+    - "超商"
+    - "便當"
+    - "今天吃了什麼"
+    - "幫我記錄"
+    - "日報"
+    - "週報"
+    - "GI"
+    - "升糖指數"
+    - "血糖"
+
+environment:
+  HEALTHFIT_DB_PATH: "~/.healthfit/healthfit.db"
+  HEALTHFIT_PROFILE: "~/.healthfit/profile.json"
+  HEALTHFIT_GI_MODEL: ""
+  HEALTHFIT_GI_API_KEY: ""
+  HEALTHFIT_GI_API_URL: "https://api.openai.com/v1/chat/completions"
+  HEALTHFIT_MEAL_PLAN_MODEL: ""
+  HEALTHFIT_MEAL_PLAN_API_KEY: ""
+  HEALTHFIT_PDF_FONT: ""
+  DISCORD_WEBHOOK_URL: ""
+  LINE_CHANNEL_ACCESS_TOKEN: ""
+  LINE_REPORT_TARGET: ""
