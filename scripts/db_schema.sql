@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS weight_plans (
     target_date DATE,
     goal_type VARCHAR(10),
     warnings TEXT,
+    is_plateau_adjustment INTEGER DEFAULT 0,
     requires_professional_review BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

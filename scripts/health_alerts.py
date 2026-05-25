@@ -187,11 +187,11 @@ def _parse_warning_list(raw: Any) -> list[str]:
 
 def _recent_plateau_adjustment_exists(db: DBManager, user_id: str, target_date: str) -> bool:
     since = (date.fromisoformat(target_date) - timedelta(days=PLATEAU_RECALC_DEDUP_DAYS)).isoformat()
-    # C1 fix: use json_extract instead of LIKE to avoid Unicode-escape fragility
+    # C1 fix: use dedicated column instead of LIKE (Unicode-fragile)
     row = db.fetchone(
         """SELECT COUNT(*) AS cnt FROM weight_plans
            WHERE user_id = ? AND created_at >= ?
-             AND json_extract(warnings, '$') LIKE '%停滯期自動調整%'""",
+             AND is_plateau_adjustment = 1""",
         (user_id, since),
     )
     return bool(row and row["cnt"] > 0)
@@ -306,9 +306,10 @@ def auto_adjust_plateau_plan(
             "carb_g": macros.carb_g,
             "fat_g": macros.fat_g,
         },
-        "goal_type": str(active_plan.get("goal_type") or "loss"),
+        "goal_type": str(active_plan["goal_type"] if active_plan["goal_type"] else "loss"),
         "warnings": warnings,
         "requires_professional_review": bool(active_plan["requires_professional_review"]),
+        "is_plateau_adjustment": 1,
     }
     target_date_value = active_plan["target_date"]
     if not target_date_value:
