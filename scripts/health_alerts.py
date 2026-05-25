@@ -187,10 +187,12 @@ def _parse_warning_list(raw: Any) -> list[str]:
 
 def _recent_plateau_adjustment_exists(db: DBManager, user_id: str, target_date: str) -> bool:
     since = (date.fromisoformat(target_date) - timedelta(days=PLATEAU_RECALC_DEDUP_DAYS)).isoformat()
+    # C1 fix: use json_extract instead of LIKE to avoid Unicode-escape fragility
     row = db.fetchone(
         """SELECT COUNT(*) AS cnt FROM weight_plans
-           WHERE user_id = ? AND created_at >= ? AND warnings LIKE ?""",
-        (user_id, since, "%停滯期自動調整%"),
+           WHERE user_id = ? AND created_at >= ?
+             AND json_extract(warnings, '$') LIKE '%停滯期自動調整%'""",
+        (user_id, since),
     )
     return bool(row and row["cnt"] > 0)
 
@@ -256,13 +258,23 @@ def auto_adjust_plateau_plan(
     safe_floor = SAFE_CALORIE_FLOOR.get(gender, SAFE_CALORIE_FLOOR["X"])
     current_target = int(active_plan["daily_calorie_target"] or dynamic_plan.daily_intake_kcal or safe_floor)
     baseline_target = min(int(dynamic_plan.daily_intake_kcal), current_target)
-    strategy = "increase_exercise_day"
-    recommendation = "增加 1 天運動"
     adjusted_target = baseline_target
+
+    # C2 fix: handle very_active users who can't "add an exercise day"
+    PAL_MAX = "very_active"
+    DIET_BREAK_SUGGESTION = "建議安排 1–2 天飲食休息（diet break），維持 TDEE 攝取後再繼續減重"
+
     if adjusted_target - 100 >= safe_floor:
         adjusted_target -= 100
         strategy = "reduce_calories"
         recommendation = "熱量再減 100 kcal"
+    elif activity_level == PAL_MAX:
+        # Already at max activity — cannot add more exercise; suggest diet break
+        strategy = "diet_break"
+        recommendation = DIET_BREAK_SUGGESTION
+    else:
+        strategy = "increase_exercise_day"
+        recommendation = "增加 1 天運動"
 
     calc = BWPCalculator()
     bmr = calc.calculate_bmr(current_weight, height_cm, age, gender, ethnicity)
@@ -294,7 +306,7 @@ def auto_adjust_plateau_plan(
             "carb_g": macros.carb_g,
             "fat_g": macros.fat_g,
         },
-        "goal_type": "loss",
+        "goal_type": str(active_plan.get("goal_type") or "loss"),
         "warnings": warnings,
         "requires_professional_review": bool(active_plan["requires_professional_review"]),
     }

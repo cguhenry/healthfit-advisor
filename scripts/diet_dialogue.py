@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 import re
+import uuid
 from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
@@ -160,6 +161,64 @@ def _normalize_food_name(fragment: str) -> str:
     return cleaned.strip("，。；、,. ")
 
 
+# ── DB-enriched food lookup helper ────────────────────────────────────────
+
+def _enrich_foods_with_nutrition(
+    foods: List[Dict[str, Any]],
+    db: DBManager,
+) -> List[Dict[str, Any]]:
+    """
+    Look up each food item in the nutrition database and fill in
+    calories / protein / carbs / fat (scaled to estimated_g).
+
+    Lookup order: FoodDBCache → FoodDBLookup fallback.
+    Items that can't be found keep their original values but are marked
+    ``food_db_source = 'UNKNOWN'`` so the caller can surface a hint.
+    """
+    # Import lazily to avoid circular import at module level
+    from food_db_cache import FoodDBCache
+    from food_db_lookup import FoodDBLookup
+
+    cache = FoodDBCache(db_path=db.db_path)
+    lookup = FoodDBLookup(db_path=db.db_path)
+
+    enriched: List[Dict[str, Any]] = []
+    for food in foods:
+        name = food.get("name") or ""
+        quantity_g = food.get("estimated_g") or 0.0
+
+        # 1) Try cache first
+        hit_list: List[Any] = cache.search(name.strip(), top=1, min_score=0.30)
+        hit = hit_list[0].item if hit_list else None
+
+        # 2) Fallback: direct DB search
+        if not hit:
+            fallback = lookup.search(name.strip(), top=1, min_score=0.30)
+            hit = fallback[0].item if fallback else None
+
+        if hit:
+            ratio = quantity_g / 100.0 if quantity_g > 0 else 1.0
+            food.update(
+                {
+                    "calories": round((hit.calories_100g or 0) * ratio, 1),
+                    "protein_g": round((hit.protein_100g or 0) * ratio, 1),
+                    "carb_g": round((hit.carb_100g or 0) * ratio, 1),
+                    "fat_g": round((hit.fat_100g or 0) * ratio, 1),
+                    "food_db_source": hit.source,
+                    "food_db_id": hit.food_id,
+                }
+            )
+        else:
+            # Not found — keep original values, mark source
+            food.setdefault("food_db_source", "UNKNOWN")
+
+        enriched.append(food)
+
+    return enriched
+
+
+# ── Core dialogue functions ────────────────────────────────────────────────
+
 def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
     """
     Parse a short natural-language meal reply into manual food entries.
@@ -228,7 +287,34 @@ def process_checkin_response(
         }
 
     foods = extract_foods_from_text(answer_text)
+
+    # --- Skip / no-eat detection ---
     if not foods:
+        skip_tokens = ("沒吃", "没吃", "還沒吃", "不吃", "skip", "還沒", "都沒吃")
+        if any(t in answer_text for t in skip_tokens):
+            db = DBManager(Path(db_path))
+            ts = log_datetime or datetime.now().isoformat()
+            db.execute(
+                """INSERT INTO food_logs
+                   (log_id, user_id, meal_type, log_datetime, food_name,
+                    quantity_g, calories, food_db_source)
+                   VALUES (?, ?, ?, ?, ?, 0, 0, 'SKIP')""",
+                (
+                    str(uuid.uuid4()),
+                    user_id,
+                    resolved_meal_type,
+                    ts,
+                    "___SKIPPED___",
+                ),
+            )
+            return {
+                "status": "skipped",
+                "meal_type": resolved_meal_type,
+                "foods": [],
+                "logged_rows": 1,
+            }
+
+        # Genuinely couldn't parse → ask for clarification
         return {
             "status": "clarification_needed",
             "field": "foods",
@@ -236,7 +322,10 @@ def process_checkin_response(
             "meal_type": resolved_meal_type,
         }
 
+    # --- B1 fix: enrich foods with nutrition from DB before logging ---
     db = DBManager(Path(db_path))
+    foods = _enrich_foods_with_nutrition(foods, db)
+
     inserted = log_meal_manual(
         db,
         user_id,

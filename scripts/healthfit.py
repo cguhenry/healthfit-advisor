@@ -80,6 +80,31 @@ def _build_image_prompt_bundle(forwarded_args: Sequence[str]) -> int:
     )
     args = parser.parse_args(list(forwarded_args))
 
+    # A1 fix: auto-fill remaining-calories / protein-gap / targets from DB
+    # when --db-path is provided and --remaining-calories wasn't explicitly set
+    import os as _os
+    if args.db_path and Path(args.db_path).expanduser().exists():
+        try:
+            from calorie_tracker import get_calorie_progress
+
+            db = DBManager(Path(args.db_path).expanduser())
+            progress = get_calorie_progress(db, args.user_id)
+            if progress:
+                if not args.remaining_calories:
+                    args.remaining_calories = max(0, int(progress.get("remaining_calories") or 0))
+                if not args.protein_gap:
+                    args.protein_gap = max(0, int(progress.get("protein_gap_g") or 0))
+            plan = db.get_active_plan(args.user_id)
+            if plan:
+                if not args.daily_calorie_target:
+                    args.daily_calorie_target = int(plan["daily_calorie_target"] or 0)
+                if not args.protein_target_g:
+                    args.protein_target_g = int(plan["protein_target_g"] or 0)
+                if not args.goal_type or args.goal_type == "loss":
+                    args.goal_type = plan.get("goal_type", "loss")
+        except Exception:
+            pass  # silently fall back to explicitly provided values
+
     system_prompt, user_prompt = build_llm_prompt(
         AnalysisScenario(args.scenario),
         goal_type=args.goal_type,
@@ -156,19 +181,36 @@ def _build_checkin_prompt_bundle(forwarded_args: Sequence[str]) -> int:
 
 
 def _run_log_from_checkin(forwarded_args: Sequence[str]) -> int:
+    import json as _json
+    from pathlib import Path as _Path
+    from notification_scheduler import DEFAULT_PROFILE_PATH
+
     from diet_dialogue import process_checkin_response
 
     parser = argparse.ArgumentParser(
         prog="healthfit.py checkin answer",
         description="Parse a natural-language daily check-in answer and persist it as a manual meal log.",
     )
-    parser.add_argument("--user-id", required=True)
+    parser.add_argument("--user-id")  # optional — auto-loaded from profile.json if absent
     parser.add_argument("--text", required=True, help="Natural-language user reply, e.g. '雞胸肉、茶葉蛋、無糖豆漿'.")
     parser.add_argument("--meal-type", choices=("breakfast", "lunch", "dinner", "snack"))
     parser.add_argument("--db-path", default="~/.healthfit/healthfit.db")
     parser.add_argument("--log-datetime", help="Optional ISO-8601 timestamp override.")
     parser.add_argument("--note", help="Optional note attached to each inserted row.")
     args = parser.parse_args(list(forwarded_args))
+
+    # B3 fix: auto-read user_id from profile.json if not provided
+    if not args.user_id:
+        profile_path = _Path(str(DEFAULT_PROFILE_PATH)).expanduser()
+        if profile_path.exists():
+            with open(profile_path) as pf:
+                profile = _json.load(pf)
+                args.user_id = profile.get("user_id") or profile.get("user", {}).get("user_id", "")
+        if not args.user_id:
+            raise ValueError(
+                "Could not determine user_id. Provide --user-id or ensure ~/.healthfit/profile.json "
+                "contains a top-level 'user_id' field."
+            )
 
     result = process_checkin_response(
         args.text,
@@ -294,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_checkin_prompt = checkin_sub.add_parser("prompt", help="Build the standard meal check-in question.")
     p_checkin_prompt.add_argument("args", nargs=argparse.REMAINDER, help="Arguments handled by the check-in prompt helper")
     p_checkin_answer = checkin_sub.add_parser("answer", help="Parse a natural-language check-in reply and log it.")
-    p_checkin_answer.add_argument("--user-id", required=True)
+    p_checkin_answer.add_argument("--user-id")  # optional — auto-loaded from profile.json
     p_checkin_answer.add_argument("--text", required=True)
     p_checkin_answer.add_argument("--meal-type", choices=("breakfast", "lunch", "dinner", "snack"))
     p_checkin_answer.add_argument("--db-path", default="~/.healthfit/healthfit.db")

@@ -161,13 +161,116 @@ class TestDialogueFlow(unittest.TestCase):
             os.unlink(tmp_db.name)
 
     def test_process_checkin_response_requests_foods_when_missing(self):
-        result = process_checkin_response(
-            "今天午餐還沒吃",
-            user_id="u1",
-            meal_type="lunch",
-        )
-        self.assertEqual(result["status"], "clarification_needed")
-        self.assertEqual(result["field"], "foods")
+        """When no foods are parseable AND the reply is not a deliberate skip, ask for clarification."""
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "吃了",
+                user_id="u1",
+                meal_type="lunch",
+                db_path=tmp_db.name,
+            )
+            self.assertEqual(result["status"], "clarification_needed")
+            self.assertEqual(result["field"], "foods")
+        finally:
+            os.unlink(tmp_db.name)
+
+    def test_checkin_records_skipped_meal(self):
+        """B2: '沒吃' replies must write a ___SKIPPED___ placeholder row."""
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "我沒吃晚餐",
+                user_id="u1",
+                meal_type="dinner",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "skipped")
+            self.assertEqual(result["meal_type"], "dinner")
+            row = db.fetch_one(
+                "SELECT food_name, calories, food_db_source FROM food_logs WHERE user_id = ?",
+                ("u1",),
+            )
+            self.assertEqual(row["food_name"], "___SKIPPED___")
+            self.assertEqual(row["calories"], 0)
+            self.assertEqual(row["food_db_source"], "SKIP")
+        finally:
+            os.unlink(tmp_db.name)
+
+    def test_checkin_enriches_calories_from_db(self):
+        """B1: process_checkin_response must look up calories from DB; total_calories must be > 0."""
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            # Pre-populate food_db_cache so lookup succeeds
+            db.execute(
+                """INSERT OR REPLACE INTO food_nutrition_cache
+                   (food_id, source, food_name, calories_100g, protein_100g,
+                    carb_100g, fat_100g, category)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    "tw_test_egg",
+                    "TW_FDA",
+                    "雞蛋",
+                    144.0,
+                    12.6,
+                    0.7,
+                    9.5,
+                    "蛋類",
+                ),
+            )
+
+            result = process_checkin_response(
+                "雞蛋兩顆",
+                user_id="u1",
+                meal_type="breakfast",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "logged")
+            self.assertGreater(result["summary"]["total_calories"], 0,
+                               "total_calories should be enriched from DB, not 0")
+        finally:
+            os.unlink(tmp_db.name)
 
 
 if __name__ == "__main__":
