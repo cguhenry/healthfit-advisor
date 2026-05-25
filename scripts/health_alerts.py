@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from datetime import date, datetime, timedelta
@@ -32,6 +33,8 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from db_manager import DBManager
+from bwp_calculator import BWPCalculator
+from bwp_dynamic_solver import build_plan_from_profile as build_dynamic_plan_from_profile
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 
@@ -84,10 +87,11 @@ MAX_WEEKLY_WEIGHT_LOSS_KG = 1.5
 MAX_EXERCISE_DAILY_KCAL = 800
 BINGE_THRESHOLD_PCT = 0.50  # 50% over target
 PLATEAU_MIN_CHANGE_KG = 0.3
-PLATEAU_MIN_WEEKS = 3
+PLATEAU_MIN_WEEKS = 2
 MISSING_LOG_DAYS = 5
 LOW_CALORIE_STREAK_DAYS = 3
 PROTEIN_DEFICIENCY_DAYS = 3
+PLATEAU_RECALC_DEDUP_DAYS = 14
 
 
 @dataclass
@@ -99,6 +103,7 @@ class HealthAlert:
     alert_date: str
     acknowledged: bool = False
     alert_id: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -161,6 +166,150 @@ def _persist_alert(db: DBManager, alert: HealthAlert) -> str:
         "SELECT alert_id FROM health_alerts WHERE rowid = last_insert_rowid()"
     )
     return row["alert_id"] if row else ""
+
+
+def _parse_warning_list(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    text = str(raw).strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return [text]
+    if isinstance(parsed, list):
+        return [str(item) for item in parsed]
+    return [str(parsed)]
+
+
+def _recent_plateau_adjustment_exists(db: DBManager, user_id: str, target_date: str) -> bool:
+    since = (date.fromisoformat(target_date) - timedelta(days=PLATEAU_RECALC_DEDUP_DAYS)).isoformat()
+    row = db.fetchone(
+        """SELECT COUNT(*) AS cnt FROM weight_plans
+           WHERE user_id = ? AND created_at >= ? AND warnings LIKE ?""",
+        (user_id, since, "%停滯期自動調整%"),
+    )
+    return bool(row and row["cnt"] > 0)
+
+
+def auto_adjust_plateau_plan(
+    db: DBManager, user_id: str, target_date: str
+) -> Optional[dict[str, Any]]:
+    """
+    Recalculate and persist a new active plan after a confirmed plateau.
+    """
+    if _recent_plateau_adjustment_exists(db, user_id, target_date):
+        return None
+
+    active_plan = db.fetchone(
+        """SELECT * FROM weight_plans
+           WHERE user_id = ? AND is_active = 1
+           ORDER BY created_at DESC LIMIT 1""",
+        (user_id,),
+    )
+    user = db.fetchone(
+        "SELECT gender, age, height_cm, ethnicity FROM users WHERE user_id = ?",
+        (user_id,),
+    )
+    if not active_plan or not user:
+        return None
+
+    latest_weight = db.fetchone(
+        """SELECT weight_kg FROM weight_logs
+           WHERE user_id = ? AND log_date <= ?
+           ORDER BY log_date DESC LIMIT 1""",
+        (user_id, target_date),
+    )
+    current_weight = float(
+        (latest_weight["weight_kg"] if latest_weight and latest_weight["weight_kg"] else active_plan["start_weight_kg"]) or 0
+    )
+    goal_weight = float(active_plan["goal_weight_kg"] or current_weight)
+    if current_weight <= 0 or goal_weight >= current_weight:
+        return None
+
+    remaining_weeks = int(active_plan["target_weeks"] or 0)
+    if active_plan["target_date"]:
+        remaining_days = (date.fromisoformat(str(active_plan["target_date"])[:10]) - date.fromisoformat(target_date)).days
+        if remaining_days > 0:
+            remaining_weeks = max(2, math.ceil(remaining_days / 7))
+    remaining_weeks = max(2, remaining_weeks or 8)
+
+    gender = str(user["gender"] or "X").upper()
+    age = int(user["age"] or 30)
+    height_cm = float(user["height_cm"] or 170)
+    ethnicity = str(user["ethnicity"] or "east_asian")
+    activity_level = str(active_plan["activity_level"] or "light")
+
+    dynamic_plan = build_dynamic_plan_from_profile(
+        age=age,
+        height_cm=height_cm,
+        current_weight_kg=current_weight,
+        goal_weight_kg=goal_weight,
+        target_weeks=remaining_weeks,
+        gender=gender,
+        activity_level=activity_level,
+    )
+
+    safe_floor = SAFE_CALORIE_FLOOR.get(gender, SAFE_CALORIE_FLOOR["X"])
+    current_target = int(active_plan["daily_calorie_target"] or dynamic_plan.daily_intake_kcal or safe_floor)
+    baseline_target = min(int(dynamic_plan.daily_intake_kcal), current_target)
+    strategy = "increase_exercise_day"
+    recommendation = "增加 1 天運動"
+    adjusted_target = baseline_target
+    if adjusted_target - 100 >= safe_floor:
+        adjusted_target -= 100
+        strategy = "reduce_calories"
+        recommendation = "熱量再減 100 kcal"
+
+    calc = BWPCalculator()
+    bmr = calc.calculate_bmr(current_weight, height_cm, age, gender, ethnicity)
+    tdee = calc.calculate_tdee(bmr, activity_level)
+    macros = calc.generate_macro_targets(adjusted_target, "loss", current_weight)
+    weekly_change_kg = (goal_weight - current_weight) / remaining_weeks
+    weekly_change_pct = abs(weekly_change_kg) / current_weight if current_weight else 0.0
+
+    warnings = _parse_warning_list(active_plan["warnings"])
+    warnings.append(
+        f"停滯期自動調整（{target_date}）：{recommendation}。"
+    )
+    if strategy == "increase_exercise_day":
+        warnings.append("因每日熱量已接近安全下限，改為建議每週額外增加 1 天運動。")
+
+    new_plan = {
+        "current_weight_kg": current_weight,
+        "goal_weight_kg": goal_weight,
+        "target_weeks": remaining_weeks,
+        "weekly_change_kg": round(weekly_change_kg, 3),
+        "weekly_change_pct": round(weekly_change_pct, 4),
+        "bmr": bmr,
+        "tdee": tdee,
+        "daily_calorie_target": adjusted_target,
+        "daily_calorie_delta": adjusted_target - tdee,
+        "activity_level": activity_level,
+        "macros": {
+            "protein_g": macros.protein_g,
+            "carb_g": macros.carb_g,
+            "fat_g": macros.fat_g,
+        },
+        "goal_type": "loss",
+        "warnings": warnings,
+        "requires_professional_review": bool(active_plan["requires_professional_review"]),
+    }
+    target_date_value = active_plan["target_date"]
+    if not target_date_value:
+        target_date_value = (date.fromisoformat(target_date) + timedelta(weeks=remaining_weeks)).isoformat()
+    new_plan_id = db.save_active_plan(user_id, new_plan, str(target_date_value)[:10])
+    return {
+        "new_plan_id": new_plan_id,
+        "strategy": strategy,
+        "recommendation": recommendation,
+        "previous_daily_calorie_target": int(active_plan["daily_calorie_target"] or 0),
+        "new_daily_calorie_target": adjusted_target,
+        "remaining_weeks": remaining_weeks,
+    }
 
 
 def check_low_calorie_streak(
@@ -348,7 +497,7 @@ def check_missing_logs(
 def check_plateau(
     db: DBManager, user_id: str, target_date: str
 ) -> Optional[HealthAlert]:
-    """Check for weight plateau (no change for 3+ weeks on a cut plan)."""
+    """Check for weight plateau (no change for 2+ weeks on a cut plan)."""
     # Only check for loss plans
     plan = db.fetchone(
         "SELECT goal_type FROM weight_plans WHERE user_id = ? AND is_active = 1 LIMIT 1",
@@ -484,6 +633,20 @@ def run_all_checks(
             continue
         alert = check_fn(db, user_id, target_date)
         if alert is not None:
+            if alert_type == "plateau":
+                adjustment = auto_adjust_plateau_plan(db, user_id, target_date)
+                if adjustment:
+                    if adjustment["strategy"] == "reduce_calories":
+                        alert.message += (
+                            f"；已自動重算計劃並寫入新的 active plan，建議 {adjustment['recommendation']}"
+                            f"（{adjustment['previous_daily_calorie_target']} → {adjustment['new_daily_calorie_target']} kcal/day）。"
+                        )
+                    else:
+                        alert.message += (
+                            f"；已自動重算計劃並寫入新的 active plan，建議 {adjustment['recommendation']}"
+                            f"（熱量維持 {adjustment['new_daily_calorie_target']} kcal/day）。"
+                        )
+                    alert.details["plan_adjustment"] = adjustment
             alert.alert_id = _persist_alert(db, alert)
             alerts.append(alert)
 
@@ -563,7 +726,7 @@ def _get_db_and_user():
     if not db_path.exists():
         print("No database found.", file=sys.stderr)
         sys.exit(1)
-    db = DBManager(db=str(db_path))
+    db = DBManager(db_path=db_path)
 
     profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser()))
     if not profile_path.exists():
@@ -583,7 +746,8 @@ def cmd_check(args: argparse.Namespace) -> None:
     if alerts:
         dict_alerts = [
             {"alert_type": a.alert_type, "severity": a.severity,
-             "message": a.message, "acknowledged": a.acknowledged}
+             "message": a.message, "acknowledged": a.acknowledged,
+             "details": a.details}
             for a in alerts
         ]
     else:

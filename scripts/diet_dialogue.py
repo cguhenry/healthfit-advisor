@@ -9,16 +9,22 @@ MenuAdvisor for the actual recommendation.
 from __future__ import annotations
 
 import sys
+import re
 from collections import OrderedDict
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
 try:
     from menu_advisor import MenuAdvisor, recommend_from_payload
+    from calorie_tracker import log_meal_manual, upsert_daily_summary
+    from db_manager import DBManager
 except ImportError:
     # allow running as a script without modifying sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     from menu_advisor import MenuAdvisor, recommend_from_payload
+    from calorie_tracker import log_meal_manual, upsert_daily_summary
+    from db_manager import DBManager
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +140,138 @@ def _match(options: list[str], raw: str) -> Optional[str]:
             return key
 
     return None
+
+
+def _extract_quantity_grams(fragment: str) -> tuple[str, float]:
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:g|克)", fragment, flags=re.IGNORECASE)
+    if not match:
+        return fragment, 0.0
+    quantity_g = float(match.group(1))
+    cleaned = (fragment[:match.start()] + fragment[match.end():]).strip()
+    return cleaned, quantity_g
+
+
+def _normalize_food_name(fragment: str) -> str:
+    cleaned = fragment.strip()
+    cleaned = re.sub(r"^(我|今天|剛剛|剛才|剛|早餐|午餐|晚餐|點心|宵夜|消夜)+", "", cleaned)
+    cleaned = re.sub(r"^(有|吃了|吃|喝了|喝|是|大概|大約|大致上)", "", cleaned)
+    cleaned = re.sub(r"(了|喔|哦|啊|呀|欸)$", "", cleaned)
+    cleaned = re.sub(r"\s+", "", cleaned)
+    return cleaned.strip("，。；、,. ")
+
+
+def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
+    """
+    Parse a short natural-language meal reply into manual food entries.
+
+    This is intentionally heuristic and lightweight: it extracts food names,
+    optional gram quantities, and leaves nutrition fields empty for later
+    enrichment.
+    """
+    raw = answer_text.strip()
+    if not raw:
+        return []
+    if any(token in raw for token in ("沒吃", "没吃", "還沒吃", "skip", "不吃")):
+        return []
+
+    normalized = raw
+    normalized = re.sub(r"[。；;\n]+", "，", normalized)
+    normalized = re.sub(r"(還有|再加|另外|以及|還吃了|跟|和|與|及)", "，", normalized)
+    normalized = re.sub(r"\bplus\b", "，", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\s*\+\s*", "，", normalized)
+
+    foods: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for fragment in re.split(r"[，、,]", normalized):
+        candidate = fragment.strip()
+        if not candidate:
+            continue
+        candidate, quantity_g = _extract_quantity_grams(candidate)
+        candidate = _normalize_food_name(candidate)
+        if not candidate:
+            continue
+        if candidate in {"都沒有", "沒有", "沒", "無"}:
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        foods.append(
+            {
+                "name": candidate,
+                "estimated_g": quantity_g,
+                "food_db_source": "MANUAL",
+                "confidence": 1.0,
+            }
+        )
+
+    return foods
+
+
+def process_checkin_response(
+    answer_text: str,
+    *,
+    user_id: str,
+    meal_type: Optional[str] = None,
+    db_path: str = str(DBManager.DEFAULT_DB_PATH),
+    log_datetime: Optional[str] = None,
+    note: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Parse a daily check-in answer and persist it as a manual meal log.
+    """
+    resolved_meal_type = meal_type or _match(MEAL_OPTIONS, answer_text)
+    if not resolved_meal_type:
+        return {
+            "status": "clarification_needed",
+            "field": "meal_type",
+            "prompt": get_meal_prompt(DialogueState()),
+        }
+
+    foods = extract_foods_from_text(answer_text)
+    if not foods:
+        return {
+            "status": "clarification_needed",
+            "field": "foods",
+            "prompt": "我還沒抓到你這餐吃了哪些食物，請直接列出食物名稱，例如：雞胸肉、茶葉蛋、無糖豆漿。",
+            "meal_type": resolved_meal_type,
+        }
+
+    db = DBManager(Path(db_path))
+    inserted = log_meal_manual(
+        db,
+        user_id,
+        resolved_meal_type,
+        foods,
+        log_datetime=log_datetime,
+        note=note or "daily_checkin",
+    )
+    active_plan = db.get_active_plan(user_id)
+    calorie_target = int(active_plan["daily_calorie_target"] or 0) if active_plan else 0
+    summary_date = date.today().isoformat()
+    if log_datetime:
+        summary_date = datetime.fromisoformat(log_datetime.replace("Z", "+00:00")).date().isoformat()
+    summary = upsert_daily_summary(
+        db,
+        user_id,
+        summary_date=summary_date,
+        calorie_target=calorie_target,
+    )
+    return {
+        "status": "logged",
+        "meal_type": resolved_meal_type,
+        "foods": foods,
+        "logged_rows": len(inserted),
+        "log_ids": inserted,
+        "summary": {
+            "date": summary.summary_date,
+            "total_calories": summary.total_calories,
+            "total_protein_g": summary.total_protein_g,
+            "total_carb_g": summary.total_carb_g,
+            "total_fat_g": summary.total_fat_g,
+            "calorie_target": summary.calorie_target,
+            "calorie_balance": summary.calorie_balance,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +476,11 @@ def main() -> None:
     parser.add_argument("--cuisine", default=None)
     parser.add_argument("--location", default=None)
     parser.add_argument("--meal", default=None)
+    parser.add_argument("--checkin-text", default=None, help="Natural-language daily check-in reply to parse and log.")
+    parser.add_argument("--user-id", default=None)
+    parser.add_argument("--db-path", default=str(DBManager.DEFAULT_DB_PATH))
+    parser.add_argument("--log-datetime", default=None)
+    parser.add_argument("--note", default=None)
     parser.add_argument("--calories", type=int, default=None)
     parser.add_argument("--remaining-calories", type=int, default=None)
     parser.add_argument("--protein-target", type=int, default=None)
@@ -354,12 +497,24 @@ def main() -> None:
         user_context["protein_target_g"] = args.protein_target
     user_context["protein_consumed_g"] = args.protein_consumed
 
-    result = build_recommendation(
-        cuisine_input=args.cuisine,
-        location_input=args.location,
-        meal_input=args.meal,
-        user_context=user_context,
-    )
+    if args.checkin_text:
+        if not args.user_id:
+            raise ValueError("--user-id is required with --checkin-text")
+        result = process_checkin_response(
+            args.checkin_text,
+            user_id=args.user_id,
+            meal_type=args.meal,
+            db_path=args.db_path,
+            log_datetime=args.log_datetime,
+            note=args.note,
+        )
+    else:
+        result = build_recommendation(
+            cuisine_input=args.cuisine,
+            location_input=args.location,
+            meal_input=args.meal,
+            user_context=user_context,
+        )
 
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -367,9 +522,12 @@ def main() -> None:
         if result["status"] == "clarification_needed":
             print(result["prompt"])
             print()
-            print(f"[state so far: cuisine={result['state']['cuisine_type']}, "
-                  f"location={result['state']['eating_location']}, "
-                  f"meal={result['state']['meal_type']}]")
+            if "state" in result:
+                print(f"[state so far: cuisine={result['state']['cuisine_type']}, "
+                      f"location={result['state']['eating_location']}, "
+                      f"meal={result['state']['meal_type']}]")
+        elif result["status"] == "logged":
+            print(f"已記錄 {len(result['foods'])} 項食物到 {MEAL_LABELS.get(result['meal_type'], result['meal_type'])}。")
         else:
             print(result["formatted"])
 

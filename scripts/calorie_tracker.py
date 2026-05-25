@@ -238,6 +238,53 @@ def log_meal_analysis(
     return inserted
 
 
+def log_meal_manual(
+    db: DBManager,
+    user_id: str,
+    meal_type: str,
+    foods: List[Dict[str, Any]],
+    log_datetime: Optional[str] = None,
+    note: Optional[str] = None,
+) -> List[str]:
+    """
+    Persist a manually described meal into food_logs.
+
+    Manual meals usually come from dialogue/check-in flows where we know
+    the food names but may not have reliable nutrition estimates yet.
+    """
+    normalized_foods: List[Dict[str, Any]] = []
+    for index, food in enumerate(foods):
+        if not isinstance(food, dict):
+            raise ValueError(f"foods[{index}] must be an object.")
+        food_name = str(food.get("name") or "").strip()
+        if not food_name:
+            raise ValueError(f"foods[{index}].name is required.")
+        normalized_foods.append(
+            {
+                "name": food_name,
+                "estimated_g": float(food.get("estimated_g") or 0),
+                "calories": float(food.get("calories") or 0),
+                "protein_g": float(food.get("protein_g") or 0),
+                "carb_g": float(food.get("carb_g") or 0),
+                "fat_g": float(food.get("fat_g") or 0),
+                "fiber_g": float(food.get("fiber_g") or 0),
+                "sodium_mg": float(food.get("sodium_mg") or 0),
+                "confidence": float(food.get("confidence") or 1.0),
+                "food_db_source": str(food.get("food_db_source") or "MANUAL"),
+            }
+        )
+
+    return log_meal_analysis(
+        db,
+        user_id,
+        meal_type,
+        normalized_foods,
+        total_nutrition=None,
+        log_datetime=log_datetime,
+        note=note,
+    )
+
+
 def _log_food_by_date(
     db: DBManager, user_id: str, log_date: str
 ) -> List[Dict[str, Any]]:

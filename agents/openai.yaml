@@ -15,6 +15,21 @@ tools:
   - name: log_meal
     description: "記錄一餐的食物攝取。"
     entry: "python3 scripts/healthfit.py log meal"
+  - name: log_from_image
+    description: "將食物照片分析 JSON 直接解析並寫入熱量追蹤。"
+    entry: "python3 scripts/healthfit.py log from-image"
+  - name: image_prompt
+    description: "為附圖的食物分析產出 prompt bundle、phase3_response.json 建議檔名與下一步落庫命令。"
+    entry: "python3 scripts/healthfit.py image prompt"
+  - name: checkin_prompt
+    description: "產生每日 check-in 問句與建議的回覆落庫命令。"
+    entry: "python3 scripts/healthfit.py checkin prompt"
+  - name: checkin_answer
+    description: "解析使用者自然語言的餐次回覆，並直接以手動紀錄方式寫入 food_logs。"
+    entry: "python3 scripts/healthfit.py checkin answer"
+  - name: notify_checkin
+    description: "產生並送出固定時間的每日 meal check-in 提問，可配合 cron 使用。"
+    entry: "python3 scripts/healthfit.py notify checkin"
   - name: daily_report
     description: "產生每日飲食摘要與評分報告。"
     entry: "python3 scripts/healthfit.py report daily"
@@ -31,5 +46,5 @@ tools:
     description: "推薦外食菜單。"
     entry: "python3 scripts/healthfit.py menu"
   - name: alert_check
-    description: "執行健康警示檢查。"
+    description: "執行健康警示檢查；遇到連續 2 週停滯時，會自動重算並寫入新的 active plan。"
     entry: "python3 scripts/healthfit.py alert check"

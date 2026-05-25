@@ -1,5 +1,7 @@
 import importlib.util
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +15,9 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 build_recommendation = MODULE.build_recommendation
 DialogueState = MODULE.DialogueState
+extract_foods_from_text = MODULE.extract_foods_from_text
+process_checkin_response = MODULE.process_checkin_response
+DBManager = MODULE.DBManager
 
 
 class TestDialogueFlow(unittest.TestCase):
@@ -114,6 +119,55 @@ class TestDialogueFlow(unittest.TestCase):
         )
         self.assertEqual(result["status"], "ready")
         self.assertEqual(result["meal_type"], "snack")
+
+    def test_extract_foods_from_text_splits_items_and_keeps_grams(self):
+        foods = extract_foods_from_text("今天午餐吃了雞胸肉150g、茶葉蛋和無糖豆漿")
+        self.assertEqual([food["name"] for food in foods], ["雞胸肉", "茶葉蛋", "無糖豆漿"])
+        self.assertEqual(foods[0]["estimated_g"], 150.0)
+        self.assertEqual(foods[1]["food_db_source"], "MANUAL")
+
+    def test_process_checkin_response_logs_manual_meal(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "今天午餐吃了雞胸肉150g、茶葉蛋和無糖豆漿",
+                user_id="u1",
+                meal_type="lunch",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "logged")
+            self.assertEqual(result["meal_type"], "lunch")
+            self.assertEqual(result["logged_rows"], 3)
+            row = db.fetch_one(
+                "SELECT COUNT(*) AS count FROM food_logs WHERE user_id = ? AND food_db_source = ?",
+                ("u1", "MANUAL"),
+            )
+            self.assertEqual(row["count"], 3)
+        finally:
+            os.unlink(tmp_db.name)
+
+    def test_process_checkin_response_requests_foods_when_missing(self):
+        result = process_checkin_response(
+            "今天午餐還沒吃",
+            user_id="u1",
+            meal_type="lunch",
+        )
+        self.assertEqual(result["status"], "clarification_needed")
+        self.assertEqual(result["field"], "foods")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,21 @@ intents:
   - name: log_meal
     description: "Persist a meal analysis payload into the calorie tracker."
     command: "python3 scripts/healthfit.py log meal"
+  - name: log_from_image
+    description: "Parse a raw image-analysis JSON response and persist it into the calorie tracker."
+    command: "python3 scripts/healthfit.py log from-image"
+  - name: image_prompt
+    description: "Build the prompt bundle and next command for a meal image so the raw reply can be saved as phase3_response.json and logged immediately."
+    command: "python3 scripts/healthfit.py image prompt"
+  - name: checkin_prompt
+    description: "Build the daily meal check-in question and the suggested logging command."
+    command: "python3 scripts/healthfit.py checkin prompt"
+  - name: checkin_answer
+    description: "Parse a natural-language daily meal reply and persist it as a manual meal log."
+    command: "python3 scripts/healthfit.py checkin answer"
+  - name: notify_checkin
+    description: "Generate and deliver the scheduled daily meal check-in prompt."
+    command: "python3 scripts/healthfit.py notify checkin"
   - name: daily_report
     description: "Generate a daily report."
     command: "python3 scripts/healthfit.py report daily"
@@ -29,7 +44,7 @@ intents:
     description: "Generate menu advice from a structured payload."
     command: "python3 scripts/healthfit.py menu"
   - name: alert_check
-    description: "Run health alert checks."
+    description: "Run health alert checks; a confirmed 2-week plateau auto-recalculates and writes a new active plan."
     command: "python3 scripts/healthfit.py alert check"
 
 routing_hints:

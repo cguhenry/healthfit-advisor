@@ -10,6 +10,11 @@ default_prompt: "Use HealthFit Advisor to intake profile data, track meals, gene
 capabilities:
   - intake
   - meal_logging
+  - image_meal_logging
+  - image_prompting
+  - daily_checkin
+  - checkin_scheduling
+  - plateau_auto_adjustment
   - reporting
   - meal_planning
   - gi_guidance
@@ -59,6 +64,78 @@ actions:
         meal_type: { type: string, enum: [breakfast, lunch, dinner, snack] }
         json_file: { type: string, description: "Phase 3 analysis JSON path." }
         db_path: { type: string }
+
+  - name: log_from_image
+    description: "將食物照片分析的原始 JSON 回應直接解析並寫入食物記錄。"
+    entry: "python3 scripts/healthfit.py log from-image"
+    input_schema:
+      type: object
+      required: [user_id, json_file]
+      properties:
+        user_id: { type: string }
+        json_file: { type: string, description: "Raw Phase 3 LLM response JSON path." }
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack], default: lunch }
+        scenario: { type: string, enum: [food, before_after], default: food }
+        db_path: { type: string }
+        log_datetime: { type: string, description: "Optional ISO-8601 timestamp override." }
+        note: { type: string }
+        print_analysis: { type: boolean, default: false }
+        save_raw_response: { type: string, description: "Optional path to save the raw Phase 3 JSON, e.g. phase3_response.json." }
+
+  - name: image_prompt
+    description: "收到食物圖片後，先產出多模態分析 prompt bundle 與建議的 phase3_response.json 落點，再接續 log_from_image。"
+    entry: "python3 scripts/healthfit.py image prompt"
+    input_schema:
+      type: object
+      required: [user_id]
+      properties:
+        user_id: { type: string }
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack], default: lunch }
+        scenario: { type: string, enum: [food, menu, before_after], default: food }
+        db_path: { type: string }
+        goal_type: { type: string, enum: [loss, gain, maintain], default: loss }
+        remaining_calories: { type: integer, default: 0 }
+        protein_gap: { type: integer, default: 0 }
+        daily_calorie_target: { type: integer, default: 0 }
+        protein_target_g: { type: integer, default: 0 }
+        estimated_meal_calories: { type: integer, default: 0 }
+        log_datetime: { type: string, description: "Optional ISO-8601 timestamp to reuse when logging." }
+        note: { type: string }
+        phase3_output: { type: string, default: phase3_response.json }
+
+  - name: checkin_prompt
+    description: "產生每日 check-in 問句與建議的回覆落庫命令。"
+    entry: "python3 scripts/healthfit.py checkin prompt"
+    input_schema:
+      type: object
+      properties:
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack], default: lunch }
+        user_id: { type: string }
+
+  - name: checkin_answer
+    description: "解析使用者自然語言的餐次回覆，並直接以手動紀錄方式寫入 food_logs。"
+    entry: "python3 scripts/healthfit.py checkin answer"
+    input_schema:
+      type: object
+      required: [user_id, text]
+      properties:
+        user_id: { type: string }
+        text: { type: string, description: "Natural-language meal reply, e.g. 雞胸肉、茶葉蛋、無糖豆漿。" }
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack] }
+        db_path: { type: string }
+        log_datetime: { type: string, description: "Optional ISO-8601 timestamp override." }
+        note: { type: string }
+
+  - name: notify_checkin
+    description: "產生並送出固定時間的每日 check-in 提問，可配合 cron 使用。"
+    entry: "python3 scripts/healthfit.py notify checkin"
+    input_schema:
+      type: object
+      properties:
+        meal_type: { type: string, enum: [breakfast, lunch, dinner, snack], default: lunch }
+        channels:
+          type: array
+          items: { type: string, enum: [discord, line, print] }
 
   - name: daily_report
     description: "產生今日或指定日期的飲食摘要與評分報告。"
@@ -124,7 +201,7 @@ actions:
         format: { type: string, enum: [json, text], default: text }
 
   - name: alert_check
-    description: "執行健康警示檢查。"
+    description: "執行健康警示檢查；遇到連續 2 週停滯時，會自動重算並寫入新的 active plan。"
     entry: "python3 scripts/healthfit.py alert check"
     input_schema:
       type: object

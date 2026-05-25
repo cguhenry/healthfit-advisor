@@ -51,9 +51,11 @@ class TestHealthAlertsBase(unittest.TestCase):
             (self.user_id,),
         )
         self.db.execute(
-            """INSERT INTO weight_plans (user_id, goal_type, daily_calorie_target,
-               is_active, start_weight_kg, bmr, tdee)
-               VALUES (?, 'loss', 1800, 1, 80.0, 1750, 2200)""",
+            """INSERT INTO weight_plans (
+               user_id, goal_type, daily_calorie_target, is_active,
+               start_weight_kg, goal_weight_kg, target_weeks, bmr, tdee,
+               activity_level, protein_target_g, carb_target_g, fat_target_g, target_date
+            ) VALUES (?, 'loss', 1800, 1, 80.0, 72.0, 8, 1750, 2200, 'light', 140, 180, 55, '2026-07-15')""",
             (self.user_id,),
         )
         self.db.execute(
@@ -335,6 +337,53 @@ class TestRunAllChecks(TestHealthAlertsBase):
         self.assertIn("low_calorie_streak", alert_types)
         self.assertIn("rapid_weight_loss", alert_types)
         self.assertIn("binge_day", alert_types)
+
+    def test_plateau_triggers_auto_adjustment_and_new_active_plan(self):
+        today = "2026-05-23"
+        self.db.execute(
+            """UPDATE weight_plans
+               SET goal_weight_kg = 79.0, target_weeks = 8, target_date = '2026-07-18',
+                   daily_calorie_target = 1800, activity_level = 'light'
+               WHERE user_id = ? AND is_active = 1""",
+            (self.user_id,),
+        )
+        self._add_weight("2026-05-09", 80.0)
+        self._add_weight(today, 80.1)
+
+        alerts = run_all_checks(self.db, self.user_id, today)
+        plateau_alert = next((a for a in alerts if a.alert_type == "plateau"), None)
+        self.assertIsNotNone(plateau_alert)
+        self.assertIn("自動重算計劃", plateau_alert.message)
+        self.assertIn("plan_adjustment", plateau_alert.details)
+
+        active_plan = self.db.fetchone(
+            """SELECT daily_calorie_target, warnings FROM weight_plans
+               WHERE user_id = ? AND is_active = 1
+               ORDER BY created_at DESC LIMIT 1""",
+            (self.user_id,),
+        )
+        self.assertIsNotNone(active_plan)
+        self.assertLess(int(active_plan["daily_calorie_target"]), 1800)
+        self.assertIn("停滯期自動調整", str(active_plan["warnings"]))
+
+    def test_plateau_auto_adjustment_uses_exercise_strategy_at_safe_floor(self):
+        today = "2026-05-23"
+        self.db.execute(
+            """UPDATE weight_plans
+               SET goal_weight_kg = 68.0, target_weeks = 2, target_date = '2026-06-06',
+                   daily_calorie_target = 1500, activity_level = 'light'
+               WHERE user_id = ? AND is_active = 1""",
+            (self.user_id,),
+        )
+        self._add_weight("2026-05-09", 80.0)
+        self._add_weight(today, 80.0)
+
+        alerts = run_all_checks(self.db, self.user_id, today)
+        plateau_alert = next((a for a in alerts if a.alert_type == "plateau"), None)
+        self.assertIsNotNone(plateau_alert)
+        adjustment = plateau_alert.details.get("plan_adjustment", {})
+        self.assertEqual(adjustment.get("strategy"), "increase_exercise_day")
+        self.assertEqual(adjustment.get("recommendation"), "增加 1 天運動")
 
 
 class TestAlertDB(TestHealthAlertsBase):

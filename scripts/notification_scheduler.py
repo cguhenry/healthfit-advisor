@@ -2,12 +2,14 @@
 """
 notification_scheduler.py — Phase 6: Cron-based daily summary scheduler.
 
-Generates and delivers daily/weekly health reports on a schedule.
+Generates and delivers daily/weekly health reports plus daily meal check-in
+prompts on a schedule.
 Designed to run via cron or APScheduler.
 
 Usage (standalone):
     python3 scripts/notification_scheduler.py daily
     python3 scripts/notification_scheduler.py weekly
+    python3 scripts/notification_scheduler.py checkin --meal-type lunch
     python3 scripts/notification_scheduler.py setup-cron
 
 Environment variables:
@@ -39,6 +41,9 @@ from scripts.calorie_tracker import get_calorie_progress, get_history_comparison
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 DEFAULT_PROFILE_PATH = Path("~/.healthfit/profile.json").expanduser()
 CRON_LINE = (
+    "# HealthFit AI — lunch check-in at 13:00\n"
+    "0 13 * * * "
+    "python3 /home/node/.openclaw/workspace/skills/healthfit-advisor/scripts/notification_scheduler.py checkin --meal-type lunch\n"
     "# HealthFit AI — daily report at 22:30\n"
     "30 22 * * * "
     "python3 /home/node/.openclaw/workspace/skills/healthfit-advisor/scripts/notification_scheduler.py daily\n"
@@ -61,7 +66,7 @@ def load_profile(profile_path: Path) -> dict:
 
 def get_db(db_path: Path) -> DBManager:
     """Connect to the SQLite database."""
-    return DBManager(db=str(db_path))
+    return DBManager(db_path=db_path)
 
 
 def get_user_id(profile: dict) -> str:
@@ -115,6 +120,36 @@ def build_weekly_payload(
     }
 
 
+def build_checkin_payload(user_id: str, meal_type: str = "lunch") -> dict:
+    meal_labels = {
+        "breakfast": "早餐",
+        "lunch": "午餐",
+        "dinner": "晚餐",
+        "snack": "點心",
+    }
+    if meal_type not in meal_labels:
+        raise ValueError(f"Unsupported meal_type: {meal_type}")
+    question = f"今天{meal_labels[meal_type]}吃了什麼？"
+    next_command = [
+        "python3",
+        "scripts/healthfit.py",
+        "checkin",
+        "answer",
+        "--user-id",
+        user_id,
+        "--meal-type",
+        meal_type,
+        "--text",
+        "<user_reply>",
+    ]
+    return {
+        "prompt_text": question,
+        "meal_type": meal_type,
+        "next_command": next_command,
+        "user_id": user_id,
+    }
+
+
 # ─────────────────────────────────────────────────────────────
 # Delivery (stub — wire to OpenClaw message system)
 # ─────────────────────────────────────────────────────────────
@@ -132,6 +167,23 @@ def deliver_report(payload: dict, channels: list[str]) -> None:
         print("=" * 60, flush=True)
         print(text, flush=True)
         print("=" * 60, flush=True)
+
+    if "discord" in channels and not dry_run:
+        _deliver_discord(text)
+
+    if "line" in channels and not dry_run:
+        _deliver_line(text)
+
+
+def deliver_prompt(payload: dict, channels: list[str]) -> None:
+    text = payload["prompt_text"]
+    dry_run = os.environ.get("HEALTHFIT_DRY_RUN", "").lower() in ("1", "true", "yes")
+
+    if "print" in channels or dry_run:
+        print("=" * 60, flush=True)
+        print(text, flush=True)
+        print("=" * 60, flush=True)
+        print("reply command:", " ".join(payload["next_command"]), flush=True)
 
     if "discord" in channels and not dry_run:
         _deliver_discord(text)
@@ -272,6 +324,22 @@ def cmd_test(args: argparse.Namespace) -> None:
     print(f"\n[TEST OK] Report generated for {payload['date']}")
 
 
+def cmd_checkin(args: argparse.Namespace) -> None:
+    db_path = Path(os.environ.get("HEALTHFIT_DB_PATH", DEFAULT_DB_PATH))
+    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", DEFAULT_PROFILE_PATH))
+
+    if not db_path.exists():
+        print("No database found. Run the Phase 1 intake flow first.", file=sys.stderr)
+        sys.exit(1)
+
+    profile = load_profile(profile_path)
+    user_id = get_user_id(profile)
+    payload = build_checkin_payload(user_id, args.meal_type)
+    channels = args.channels or os.environ.get("HEALTHFIT_CHANNELS", "print").split(",")
+    deliver_prompt(payload, channels)
+    print(f"\n[OK] Check-in prompt generated for {args.meal_type}", flush=True)
+
+
 # ─────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────
@@ -283,6 +351,9 @@ def main() -> None:
     sub.add_parser("daily", help="Generate and deliver today's daily report") \
         .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
     sub.add_parser("weekly", help="Generate and deliver this week's report") \
+        .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
+    sub.add_parser("checkin", help="Generate and deliver a daily meal check-in prompt") \
+        .add_argument("--meal-type", choices=["breakfast", "lunch", "dinner", "snack"], default="lunch") \
         .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
     sub.add_parser("setup-cron", help="Print cron entry to stdout")
     sub.add_parser("test", help="Smoke test: generate and print today's report")
@@ -297,6 +368,8 @@ def main() -> None:
         cmd_setup_cron(args)
     elif args.command == "test":
         cmd_test(args)
+    elif args.command == "checkin":
+        cmd_checkin(args)
 
 
 if __name__ == "__main__":
