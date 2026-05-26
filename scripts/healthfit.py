@@ -379,6 +379,16 @@ def build_parser() -> argparse.ArgumentParser:
         p_notify_sub = notify_sub.add_parser(name, help=f"Forward to notification_scheduler.py {name}")
         p_notify_sub.add_argument("args", nargs=argparse.REMAINDER, help=f"Arguments forwarded to notification_scheduler.py {name}")
 
+    # ── preference (food fingerprint) ──────────────────────────────────────────
+    from food_preference_engine import build_preference_parser  # noqa: PLC0415
+
+    build_preference_parser(sub)
+
+    # ── can-eat ──────────────────────────────────────────────────────────────────
+    p_caneat = sub.add_parser("can-eat", help="Feature F: 今天能不能吃 X？即時熱量評估")
+    p_caneat.add_argument("args", nargs=argparse.REMAINDER,
+                          help="Arguments forwarded to can_i_eat.py")
+
     return parser
 
 
@@ -447,6 +457,14 @@ def dispatch(argv: Sequence[str] | None = None) -> int:
         if rest[0] not in {"daily", "weekly", "checkin", "test", "setup-cron"}:
             raise ValueError(f"unsupported notify subcommand: {rest[0]}")
         return _run_script("notification_scheduler.py", [rest[0], *rest[1:]])
+
+    if command == "preference":
+        from food_preference_engine import dispatch_preference  # noqa: PLC0415
+
+        return dispatch_preference(["preference", *rest])
+
+    if command == "can-eat":
+        return _run_script("can_i_eat.py", rest)
 
     raise ValueError(f"unsupported command path: {command}")
 

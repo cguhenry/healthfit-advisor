@@ -334,8 +334,7 @@ def _build_planning_prompt(
     cuisine_pref: str,
     meal_preference: str,
     dietary_restrictions: list[str],
-    recent_foods: list[dict[str, Any]],
-    avoid_patterns: list[dict[str, Any]],
+    preference_context: str,
     days: int,
 ) -> str:
     return f"""
@@ -352,11 +351,8 @@ def _build_planning_prompt(
 - 進食偏好：{meal_preference}
 - 飲食限制：{', '.join(dietary_restrictions) or '無'}
 
-== 近期飲食紀錄（請盡量不重複）==
-{_stringify_food_patterns(recent_foods, empty_text='- 無近期紀錄')}
-
-== 請避免的飲食模式（根據過去低分記錄）==
-{_stringify_food_patterns(avoid_patterns, empty_text='- 無特殊低分模式')}
+== 飲食指紋（根據歷史飲食模式與評分）==
+{preference_context or '- 尚無足夠的飲食數據'}
 
 == 規則 ==
 - 同一道菜 7 天內不可出現超過 2 次
@@ -676,16 +672,18 @@ def generate_optimized_meal_plan(
     persist: bool = False,
 ) -> dict:
     """LLM-optimized weekly meal plan with validation and template fallback."""
-    recent_foods = _get_recent_food_preferences(db, user_id, lookback_days=14)
-    low_score_patterns = _get_low_score_patterns(db, user_id)
+    # Use food fingerprint engine (replaces _get_recent_food_preferences +
+    # _get_low_score_patterns with quadrant-based classification)
+    from food_preference_engine import get_preference_prompt_context  # noqa: PLC0415
+
+    preference_context = get_preference_prompt_context(db, user_id)
     prompt = _build_planning_prompt(
         daily_calories=daily_calories,
         macro_targets=macro_targets,
         cuisine_pref=cuisine_pref,
         meal_preference=meal_preference,
         dietary_restrictions=dietary_restrictions or [],
-        recent_foods=recent_foods,
-        avoid_patterns=low_score_patterns,
+        preference_context=preference_context,
         days=days,
     )
 

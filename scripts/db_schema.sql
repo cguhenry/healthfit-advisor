@@ -185,3 +185,20 @@ CREATE TABLE IF NOT EXISTS health_alerts (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     acknowledged BOOLEAN DEFAULT FALSE
 );
+
+-- Phase 6: 食物偏好學習（Food Fingerprint）
+-- 每筆食物記錄寫入後非同步更新，不影響主流程
+CREATE TABLE IF NOT EXISTS food_preference_profile (
+    profile_id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id                 TEXT REFERENCES users(user_id),
+    food_name               TEXT NOT NULL,
+    food_db_id              TEXT,            -- 對應 food_nutrition_cache.food_id
+    total_count             INTEGER DEFAULT 0,   -- 總記錄次數
+    recent_count            INTEGER DEFAULT 0,   -- 近 30 天次數
+    avg_daily_score_when_eaten REAL,             -- 吃這個食物的日子平均日評分
+    last_eaten_date         DATE,
+    never_suggest           INTEGER DEFAULT 0,   -- 明確說「不要推薦」
+    always_suggest          INTEGER DEFAULT 0,  -- 明確說「喜歡，常推薦」
+    updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, food_name)
+);

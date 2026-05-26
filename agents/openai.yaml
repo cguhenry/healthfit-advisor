@@ -48,3 +48,17 @@ tools:
   - name: alert_check
     description: "執行健康警示檢查；遇到連續 2 週停滯時，會自動重算並寫入新的 active plan。"
     entry: "python3 scripts/healthfit.py alert check"
+  - name: shopping_push
+    description: "產生下週飲食計劃的採購清單，推播至 Discord/LINE，可選輸出 PDF"
+    entry: "python3 scripts/shopping_push.py"
+    input_schema:
+      properties:
+        week_start:
+          type: string
+          description: "ISO date of Monday, or 'next'"
+        pdf:
+          type: boolean
+          default: false
+        output:
+          type: string
+          description: "PDF output path"

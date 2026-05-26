@@ -235,6 +235,19 @@ def log_meal_analysis(
         )
         inserted.append(log_id)
 
+    # ── fire-and-forget preference learning (must not break the main flow) ──
+    _log_date = ts[:10] if ts else None
+    if _log_date:
+        try:
+            from food_preference_engine import update_preference_after_log  # noqa: PLC0415
+
+            for food in foods:
+                food_name = str(food.get("name") or "").strip()
+                if food_name and food_name != "___MEAL_TOTAL___":
+                    update_preference_after_log(db, user_id, food_name, _log_date)
+        except Exception:
+            pass  # preference learning failure must never break meal logging
+
     return inserted
 
 
