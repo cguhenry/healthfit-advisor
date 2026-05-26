@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.7 - 2026-05-26
+
+Bug fixes batch — preference engine, PDF export, can-i-eat, shopping push
+
+- **food_preference_engine.py**: `always_suggest` foods no longer appear in both `preferred` and `problematic` quadrants; added `continue` after appending to `preferred` so they skip quadrant classification
+- **food_preference_engine.py**: `db_schema.sql` comment for `recent_count` corrected from「近 30 天次數」to「近 30 天內有記錄此食物的天數（非份數）」to match the `COUNT(DISTINCT DATE(log_datetime))` implementation
+- **shopping_push.py** PDF export: replaced the broken column-switching logic (`if col_idx == 1` always true after assignment, `break` reversed by outer loop, no new-page handling); new approach tracks `col_row_y[2]` independently, pre-estimates category height, falls back to the other column or adds a new page when needed
+- **shopping_push.py**: `_generate_plan_for_week()` no longer hardcodes `cuisine="台式"`; now queries `weekly_meal_plans` for the user's last-used cuisine and falls back to「台式」only when no history exists
+- **can_i_eat.py**: `_determine_verdict()` now has an early return for `remaining < 0` (already over budget today), producing a clear message 「今日已超標 {abs(remaining):.0f} kcal」instead of the confusing 「超出今日剩餘 -N kcal」
+- **can_i_eat.py**: `matched_food_display` no longer shows 「估算 份」when not an estimate; fixed to only show「（估算 1 份）」when `is_estimate=True`, and shows quantity multiplier for non-1 quantities
+- **can_i_eat.py**: fallback alternatives in `_build_alternatives()` now dynamically compute「✅ 在配額內」vs「⚠️ 超出 {N} kcal」based on the actual `remaining` calorie budget, instead of always appending「✅ 在配額內」
+- **can_i_eat.py**: `_build_adjusted_suggestion()` is now called for `verdict="marginal"` (was previously only called for `yes` and `yes_with_caveat`), so marginal situations that need meal-adjustment advice now produce output
+
 ## 0.7.6 - 2026-05-25
 
 CLI unification and agent manifest expansion

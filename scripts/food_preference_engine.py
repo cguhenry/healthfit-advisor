@@ -172,7 +172,7 @@ def get_food_fingerprint(
             continue
         if r["always_suggest"]:
             preferred.append(name)
-        candidates.append(r)
+            continue  # 既然使用者明確喜歡，不再進行象限分類
 
     favorites: list[str] = []
     problematic: list[str] = []

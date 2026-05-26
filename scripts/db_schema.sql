@@ -194,7 +194,7 @@ CREATE TABLE IF NOT EXISTS food_preference_profile (
     food_name               TEXT NOT NULL,
     food_db_id              TEXT,            -- 對應 food_nutrition_cache.food_id
     total_count             INTEGER DEFAULT 0,   -- 總記錄次數
-    recent_count            INTEGER DEFAULT 0,   -- 近 30 天次數
+    recent_count            INTEGER DEFAULT 0,   -- 近 30 天內有記錄此食物的天數（非份數）
     avg_daily_score_when_eaten REAL,             -- 吃這個食物的日子平均日評分
     last_eaten_date         DATE,
     never_suggest           INTEGER DEFAULT 0,   -- 明確說「不要推薦」

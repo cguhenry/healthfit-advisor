@@ -80,6 +80,13 @@ def _determine_verdict(
     """
     overshoot = food_calories - remaining  # positive = over budget
 
+    # 特殊：今日已超標（remaining < 0）
+    if remaining < 0:
+        return "no", (
+            f"❌ 今日已超標 {abs(remaining):.0f} kcal，"
+            f"再吃這份（{food_calories:.0f} kcal）將再多超標 {food_calories:.0f} kcal。"
+        )
+
     if goal_type == "gain":
         # 增肌：超標寬容度更高
         threshold_caveat = daily_target * 0.10
@@ -189,10 +196,13 @@ def _build_alternatives(
                 )
             break
     else:
-        # Generic fallback
-        alternatives.append(f"蕎麥冷麵（約 380 kcal）✅ 在配額內")
-        alternatives.append(f"雞絲涼麵（約 350 kcal）✅ 在配額內")
-        alternatives.append(f"日式雞肉沙拉（約 380 kcal）✅ 在配額內")
+        # Generic fallback — 動態標記
+        fallback_options = [
+            ("蕎麥冷麵", 380), ("雞絲涼麵", 350), ("日式雞肉沙拉", 380)
+        ]
+        for name, cal in fallback_options:
+            within_str = "✅ 在配額內" if cal <= remaining else f"⚠️ 超出 {cal - remaining:.0f} kcal"
+            alternatives.append(f"{name}（約 {cal} kcal）{within_str}")
 
     return alternatives
 
@@ -317,13 +327,13 @@ def check_can_i_eat(
         alternatives = _build_alternatives(food_query, calories_remaining, protein_gap)
 
     # 5) Adjusted meal suggestion
-    if verdict in ("yes", "yes_with_caveat"):
+    if verdict in ("yes", "yes_with_caveat", "marginal"):
         adjusted = _build_adjusted_suggestion(
             food_cal, calories_remaining, protein_gap,
             food_query, meal_type, goal_type
         )
     else:
-        adjusted = ""
+        adjusted = ""  # no verdict only
 
     # Protein gap note
     if protein_gap > 10 and verdict != "no":
@@ -339,9 +349,15 @@ def check_can_i_eat(
             "實際數值可能有 ±20% 誤差。"
         )
 
+    if is_estimate:
+        matched_food_display = f"{matched_name}（估算 1 份）"
+    else:
+        quantity_str = "" if quantity == 1.0 else f" × {quantity:.0g}"
+        matched_food_display = f"{matched_name}{quantity_str}"
+
     return CanIEatResult(
         food_name=food_query,
-        matched_food_display=f"{matched_name}（估算 {'1' if is_estimate else ''}份）",
+        matched_food_display=matched_food_display,
         estimated_calories=round(food_cal, 1),
         estimated_protein_g=round(food_prot, 1),
         calories_remaining=round(calories_remaining, 1),

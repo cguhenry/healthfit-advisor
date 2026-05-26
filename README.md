@@ -211,6 +211,14 @@ agents/ 目前分為三份 manifest，避免不同平台共用一個名稱不清
 
 這層 wrapper 目前是 thin dispatcher，不重寫原有 phase script 邏輯；目的是讓 CLI、agent manifest、文件三者共享同一個穩定入口。
 
+Feature F 已經可以直接透過統一 CLI 使用：
+
+    python3 scripts/healthfit.py can-eat "一碗拉麵" --meal lunch --user-id <user_id>
+    python3 scripts/healthfit.py can-eat "珍奶" --quantity 2 --user-id <user_id>
+    python3 scripts/healthfit.py can-eat "兩個便當" --json --user-id <user_id>
+
+原理：串接 `get_calorie_progress()`（今日剩餘熱量）+ `FoodDBLookup.search()`（食物熱量查詢）+ `food_preference_engine`（替代選項），根據 `daily_target` 與 `goal_type` 動態給出「yes / yes_with_caveat / marginal / no」判斷與調整建議。
+
 ### 外食 / 菜單建議
 
     python3 scripts/diet_dialogue.py --cuisine 日式 --location 餐廳 --meal 晚餐 --calories 1800

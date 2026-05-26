@@ -128,9 +128,18 @@ def _generate_plan_for_week(db, user_id: str, week_start: date) -> dict:
     if active_plan and "protein_target_g" in active_plan and active_plan["protein_target_g"]:
         protein_target = int(active_plan["protein_target_g"])
 
+    # 繼承最近一次計劃的 cuisine，避免每次都強制台式
+    last_plan_row = db.fetch_one(
+        """SELECT cuisine FROM weekly_meal_plans
+             WHERE user_id = ? AND cuisine IS NOT NULL AND cuisine != ''
+             ORDER BY created_at DESC LIMIT 1""",
+        (user_id,),
+    )
+    cuisine = last_plan_row["cuisine"] if last_plan_row else "台式"
+
     plan = generate_meal_plan(
         daily_calories=daily_calories,
-        cuisine="台式",
+        cuisine=cuisine,
         meal_preference="balanced",
         protein_target_g=protein_target,
     )
@@ -282,40 +291,52 @@ def export_shopping_pdf(shopping_list: dict[str, list[str]], week_start: date, o
     categories = ["蛋白質", "蔬菜", "水果", "主食", "飲料/調味", "堅果/種子"]
 
     y_start = 22
-    row_y = y_start
+    col_row_y = [y_start, y_start]  # col_row_y[0]=左欄, col_row_y[1]=右欄
     col_idx = 0
+    PAGE_BOTTOM = 195  # A5 高 210mm，邊距 12mm，留白
 
     for cat in categories:
         items = shopping_list.get(cat, [])
         if not items:
             continue
 
+        # 估算這個 category 需要的高度：header(6) + items(5 each) + gap(3)
+        cat_height = 6 + len(items) * 5 + 3
+
+        # 如果目前欄放不下整個 category，試試另一欄
+        if col_row_y[col_idx] + cat_height > PAGE_BOTTOM:
+            other = 1 - col_idx
+            if col_row_y[other] + cat_height <= PAGE_BOTTOM:
+                col_idx = other
+            else:
+                # 兩欄都放不下 → 新頁
+                pdf.add_page()
+                col_row_y = [y_start, y_start]
+                col_idx = 0
+
         x = col_x[col_idx]
-        pdf.set_xy(x, row_y)
+        row_y = col_row_y[col_idx]
 
         # category header
         emoji = _CATEGORY_EMOJI.get(cat, "")
         pdf.set_font("CJK", "B", 9)
         pdf.set_fill_color(235, 245, 235)
-        pdf.cell(col_w, 6, _sanitize_pdf_text(f"{emoji} {cat}（{len(items)} 項）"), border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_xy(x, row_y)
+        pdf.cell(col_w, 6, _sanitize_pdf_text(f"{emoji} {cat}（{len(items)} 項）"),
+                 border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
         row_y = pdf.get_y() + 1
 
         # checkbox items
         pdf.set_font("CJK", "", 8)
         for item in items:
             pdf.set_xy(x + 2, row_y)
-            pdf.cell(col_w - 2, 5, _sanitize_pdf_text(f"☐ {item}"), new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(col_w - 2, 5, _sanitize_pdf_text(f"☐ {item}"),
+                     new_x="LMARGIN", new_y="NEXT")
             row_y = pdf.get_y()
 
-            # switch to right column when we run out of space
-            if row_y > 170:
-                col_idx = 1
-                if col_idx == 1:
-                    row_y = y_start
-                    break
+        col_row_y[col_idx] = row_y + 3
 
-        row_y += 3
-        # alternate columns for next category
+        # 下一個 category 自動交替欄位
         col_idx = (col_idx + 1) % 2
 
     pdf.output(str(output_path))
