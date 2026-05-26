@@ -29,6 +29,135 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Literal, Optional, Sequence
 
+# ── food‑quality scoring weights ──────────────────────────────────────────
+# Scores are 0–100; higher = nutritionally better independent of context.
+# Based on per‑100 g values from food_nutrition_cache.
+
+_QUALITY_WEIGHTS = dict(
+    cal_density_max=400,     # cal/100g above which we heavily penalise
+    protein_min=15,           # g/100g above which is excellent
+    fiber_min=4,              # g/100g above which is excellent
+    sodium_max=600,           # mg/100g above which is penalised
+    sugar_max=10,             # g/100g above which is penalised
+    sat_fat_max=8,            # g/100g above which is penalised
+)
+
+
+def _compute_food_quality_score(
+    cal_100g: Optional[float],
+    protein_100g: Optional[float],
+    carb_100g: Optional[float],
+    fat_100g: Optional[float],
+    fiber_100g: Optional[float],
+    sodium_100g: Optional[float],
+) -> Optional[float]:
+    """Return a food‑intrinsic quality score 0–100, or None if data insufficient.
+
+    Dual‑track scoring — Track 2: pure nutrition characteristics.
+    Independent of the user's daily score; unaffected by what else they ate that day.
+
+    Scoring sub‑components (each 0–25, summed to 100):
+      • calorie_density  — lower cal/100g is better
+      • protein_quality  — higher protein + lower fat is better
+      • fibre_quality    — higher fibre is better
+      • sodium_penalty   — lower sodium is better
+      • sugar_penalty    — lower sugar is better
+
+    Reference: WHO, USDA, and TW_FDA dietary guidelines.
+    """
+    if cal_100g is None:
+        return None
+
+    cal = max(cal_100g or 0, 0)
+    prot = max(protein_100g or 0, 0)
+    carb = max(carb_100g or 0, 0)
+    fat = max(fat_100g or 0, 0)
+    fib = max(fiber_100g or 0, 0)
+    sod = max(sodium_100g or 0, 0)
+    total_macros = prot + carb + fat
+
+    # ── 1. Calorie density (0–25) ─────────────────────────────────────────
+    if cal <= 50:
+        cal_score = 25
+    elif cal <= 100:
+        cal_score = 22
+    elif cal <= 200:
+        cal_score = 17
+    elif cal <= 300:
+        cal_score = 11
+    elif cal <= 450:
+        cal_score = 5
+    else:
+        cal_score = 0
+
+    # ── 2. Protein quality (0–25) — high protein, low saturated fat ────────
+    if total_macros > 0:
+        prot_ratio = prot / total_macros           # 0–1
+        sat_ratio = (fat / total_macros) if total_macros > 0 else 0
+    else:
+        prot_ratio, sat_ratio = 0.0, 0.0
+
+    if prot >= 20:
+        prot_score = 25
+    elif prot >= 12:
+        prot_score = 20
+    elif prot >= 7:
+        prot_score = 14
+    elif prot >= 3:
+        prot_score = 8
+    else:
+        prot_score = 3
+
+    # slight penalty for high sat fat relative to total fat
+    if total_macros > 0 and fat > 0:
+        sat_pct = fat / total_macros
+        if sat_pct > 0.4:
+            prot_score = max(0, prot_score - 5)
+        elif sat_pct > 0.25:
+            prot_score = max(0, prot_score - 2)
+
+    # ── 3. Fibre quality (0–25) ─────────────────────────────────────────────
+    if fib >= 6:
+        fib_score = 25
+    elif fib >= 4:
+        fib_score = 20
+    elif fib >= 2.5:
+        fib_score = 14
+    elif fib >= 1:
+        fib_score = 8
+    else:
+        fib_score = 3
+
+    # ── 4. Sodium penalty (0–25, penalise high sodium) ───────────────────────
+    if sod < 100:
+        sod_score = 25
+    elif sod < 300:
+        sod_score = 20
+    elif sod < 500:
+        sod_score = 14
+    elif sod < 800:
+        sod_score = 8
+    elif sod < 1200:
+        sod_score = 3
+    else:
+        sod_score = 0
+
+    # ── 5. Sugar penalty (0–25, penalise high sugar) ─────────────────────────
+    sugar = carb  # use total carb as proxy; real impl would need added_sugar field
+    if sugar < 3:
+        sug_score = 25
+    elif sugar < 8:
+        sug_score = 20
+    elif sugar < 15:
+        sug_score = 14
+    elif sugar < 25:
+        sug_score = 7
+    else:
+        sug_score = 0
+
+    total = cal_score + prot_score + fib_score + sod_score + sug_score
+    return round(min(max(total, 0), 100), 1)
+
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
@@ -79,6 +208,14 @@ def update_preference_after_log(
 ) -> None:
     """Fire-and-forget update after a food_log row is written.
 
+    Dual‑track scoring:
+      Track 1 — avg_daily_score_when_eaten:  does this food tend to appear on
+        high‑score or low‑score days? (attribution is blurry when multiple
+        foods share the same day)
+      Track 2 — avg_food_quality_score:      the food's intrinsic nutrition
+        profile (calorie density, protein, fibre, sodium, sugar).  Independent
+        of context; stays stable across all eating occasions.
+
     Args:
         db: Initialised DBManager.
         user_id: Target user.
@@ -88,46 +225,106 @@ def update_preference_after_log(
     if not food_name or food_name == "___MEAL_TOTAL___":
         return
 
+    # Look up nutrition data for this food (Track 2 signal)
+    nutrition_row = db.fetch_one(
+        """SELECT calories_100g, protein_100g, carb_100g, fat_100g,
+                     fiber_100g, sodium_100g
+               FROM food_nutrition_cache
+              WHERE food_name = ?
+              LIMIT 1""",
+        (food_name,),
+    )
+    food_quality = None
+    if nutrition_row:
+        food_quality = _compute_food_quality_score(
+            cal_100g=nutrition_row["calories_100g"],
+            protein_100g=nutrition_row["protein_100g"],
+            carb_100g=nutrition_row["carb_100g"],
+            fat_100g=nutrition_row["fat_100g"],
+            fiber_100g=nutrition_row["fiber_100g"],
+            sodium_100g=nutrition_row["sodium_100g"],
+        )
+
     daily_score = _get_daily_score(db, user_id, log_date)
 
     # Phase 1: upsert a row with INSERT ON CONFLICT
     db.execute(
         """INSERT INTO food_preference_profile
              (user_id, food_name, total_count, recent_count,
-              avg_daily_score_when_eaten, last_eaten_date)
-           VALUES (?, ?, 1, 1, ?, ?)
+              avg_daily_score_when_eaten, avg_food_quality_score, last_eaten_date)
+           VALUES (?, ?, 1, 1, ?, ?, ?)
            ON CONFLICT(user_id, food_name) DO UPDATE SET
              total_count = total_count + 1,
              last_eaten_date = MAX(last_eaten_date, ?),
              updated_at = CURRENT_TIMESTAMP""",
-        (user_id, food_name, daily_score, log_date, log_date),
+        (user_id, food_name, daily_score, food_quality, log_date, log_date),
     )
 
-    # Phase 2: refresh recent_count and avg_daily_score_when_eaten
-    # from the underlying food_logs / daily_summaries tables
-    db.execute(
-        """UPDATE food_preference_profile SET
-             recent_count = (
-               SELECT COUNT(DISTINCT DATE(fl.log_datetime))
-                 FROM food_logs fl
-                WHERE fl.user_id = food_preference_profile.user_id
-                  AND fl.food_name  = food_preference_profile.food_name
-                  AND DATE(fl.log_datetime) >= DATE('now', '-30 day')
-             ),
-             avg_daily_score_when_eaten = (
-               SELECT AVG(ds.daily_score)
-                 FROM food_logs fl
-                 JOIN daily_summaries ds
-                   ON ds.user_id = fl.user_id
-                  AND ds.summary_date = DATE(fl.log_datetime)
-                WHERE fl.user_id    = food_preference_profile.user_id
-                  AND fl.food_name  = food_preference_profile.food_name
-                  AND ds.daily_score IS NOT NULL
-             )
-           WHERE user_id = ?
-             AND food_name = ?""",
+    # ── Phase 2: rolling refresh ────────────────────────────────────────────
+    # Compute avg_food_quality_score as a simple rolling average:
+    #   new_avg = (old_avg * old_count + new_score) / (old_count + 1)
+    # Fetch current profile to get old avg + count before writing.
+    row = db.fetch_one(
+        """SELECT total_count, avg_food_quality_score
+             FROM food_preference_profile
+            WHERE user_id = ? AND food_name = ?""",
         (user_id, food_name),
     )
+    if row and food_quality is not None:
+        old_count = int(row["total_count"] or 0)
+        old_avg   = row["avg_food_quality_score"]
+        if old_avg is not None and old_count > 0:
+            new_food_quality = (old_avg * old_count + food_quality) / (old_count + 1)
+        else:
+            new_food_quality = food_quality
+        db.execute(
+            """UPDATE food_preference_profile SET
+                  recent_count = (
+                    SELECT COUNT(DISTINCT DATE(fl.log_datetime))
+                      FROM food_logs fl
+                     WHERE fl.user_id    = food_preference_profile.user_id
+                       AND fl.food_name  = food_preference_profile.food_name
+                       AND DATE(fl.log_datetime) >= DATE('now', '-30 day')
+                  ),
+                  avg_daily_score_when_eaten = (
+                    SELECT AVG(ds.daily_score)
+                      FROM food_logs fl
+                      JOIN daily_summaries ds
+                        ON ds.user_id = fl.user_id
+                       AND ds.summary_date = DATE(fl.log_datetime)
+                     WHERE fl.user_id    = food_preference_profile.user_id
+                       AND fl.food_name  = food_preference_profile.food_name
+                       AND ds.daily_score IS NOT NULL
+                  ),
+                  avg_food_quality_score = ?
+                WHERE user_id = ?
+                  AND food_name = ?""",
+            (round(new_food_quality, 1), user_id, food_name),
+        )
+    else:
+        db.execute(
+            """UPDATE food_preference_profile SET
+                  recent_count = (
+                    SELECT COUNT(DISTINCT DATE(fl.log_datetime))
+                      FROM food_logs fl
+                     WHERE fl.user_id    = food_preference_profile.user_id
+                       AND fl.food_name  = food_preference_profile.food_name
+                       AND DATE(fl.log_datetime) >= DATE('now', '-30 day')
+                  ),
+                  avg_daily_score_when_eaten = (
+                    SELECT AVG(ds.daily_score)
+                      FROM food_logs fl
+                      JOIN daily_summaries ds
+                        ON ds.user_id = fl.user_id
+                       AND ds.summary_date = DATE(fl.log_datetime)
+                     WHERE fl.user_id    = food_preference_profile.user_id
+                       AND fl.food_name  = food_preference_profile.food_name
+                       AND ds.daily_score IS NOT NULL
+                  )
+                WHERE user_id = ?
+                  AND food_name = ?""",
+            (user_id, food_name),
+        )
 
 
 def get_food_fingerprint(
@@ -149,10 +346,10 @@ def get_food_fingerprint(
     """
     db.initialize()
 
-    # Fetch all rows for the user
+    # Fetch all rows for the user (both tracks of the dual‑track system)
     all_rows = db.fetchall(
         """SELECT food_name, total_count, recent_count,
-                  avg_daily_score_when_eaten, last_eaten_date,
+                  avg_daily_score_when_eaten, avg_food_quality_score, last_eaten_date,
                   never_suggest, always_suggest
              FROM food_preference_profile
             WHERE user_id = ?
@@ -160,7 +357,16 @@ def get_food_fingerprint(
         (user_id,),
     )
 
-    # ---- quad‑classification ----
+    # ── quad‑classification (dual‑track) ───────────────────────────────────
+    # Score = daily_score × 0.6 + food_quality × 0.4
+    #   daily_score   (Track 1) — high when food appears on good‑score days
+    #   food_quality  (Track 2) — intrinsic nutrition profile (stable)
+    #
+    # Thresholds:
+    #   favorites    : final ≥ 65  AND total ≥ MIN_TOTAL_FOR_CLASSIFICATION
+    #   problematic  : final ≤ 40  AND total ≥ MIN_COUNT_FOR_PROBLEMATIC
+    #   exploratory  : everything else (or insufficient data)
+    #
     avoid: list[str] = []
     preferred: list[str] = []
     candidates: list[dict[str, Any]] = []
@@ -172,9 +378,9 @@ def get_food_fingerprint(
             continue
         if r["always_suggest"]:
             preferred.append(name)
-            continue  # 既然使用者明確喜歡，不再進行象限分類
+            continue
 
-        candidates.append(dict(r))  # 一般食物加入候選，進入象限分類
+        candidates.append(dict(r))  # general foods enter quadrant classification
 
     favorites: list[str] = []
     problematic: list[str] = []
@@ -183,18 +389,28 @@ def get_food_fingerprint(
     for r in candidates:
         name = r["food_name"]
         total = int(r["total_count"] or 0)
-        score = r["avg_daily_score_when_eaten"]  # may be None
+        daily = r["avg_daily_score_when_eaten"]   # may be None
+        fq    = r["avg_food_quality_score"]        # may be None
 
         if total >= MIN_TOTAL_FOR_CLASSIFICATION:
-            if score is not None and score >= MIN_SCORE_FOR_FAVOURITE:
+            # Compute final dual‑track score; prefer quality if daily is missing
+            if daily is not None and fq is not None:
+                final = daily * 0.6 + fq * 0.4
+            elif daily is not None:
+                final = daily  # fallback: only daily track
+            elif fq is not None:
+                final = fq      # fallback: only quality track
+            else:
+                exploratory.append(name)
+                continue
+
+            if final >= 65:
                 favorites.append(name)
-            elif score is not None and score <= MAX_SCORE_FOR_PROBLEMATIC and total >= MIN_COUNT_FOR_PROBLEMATIC:
+            elif final <= 40 and total >= MIN_COUNT_FOR_PROBLEMATIC:
                 problematic.append(name)
             else:
-                # has enough data but in the grey zone — treat as exploratory
                 exploratory.append(name)
         else:
-            # not enough data — exploratory
             if total > 0:
                 exploratory.append(name)
 

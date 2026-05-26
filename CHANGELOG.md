@@ -1,12 +1,38 @@
 # Changelog
 
+## 0.7.9 - 2026-05-26
+
+Enhancement — dual-track food preference scoring (Bug 14)
+
+**Problem**: `avg_daily_score_when_eaten` is a blurred attribution signal — a food eaten
+on a bad day (because other foods on the same plate dragged the score down) gets
+penalised unfairly. Favorites/problematic quadrants were unreliable.
+
+**Solution**: Dual-track scoring where each food gets two independent signals:
+
+- **Track 1 — `avg_daily_score_when_eaten`** (unchanged): does this food tend to appear
+  on high- or low-score days? Weak but behaviourally grounded.
+- **Track 2 — `avg_food_quality_score`** (new): the food's intrinsic nutrition profile
+  based on calorie density, protein, fibre, sodium, and sugar per 100 g. Independent
+  of context; stable across all eating occasions. Range 0–100.
+
+**Classification** (updated thresholds):
+`final_score = daily_score × 0.6 + food_quality × 0.4`
+
+| Quadrant | Condition |
+|----------|------------|
+| Favorites | final ≥ 65, total_count ≥ 2 |
+| Problematic | final ≤ 40, total_count ≥ 3 |
+| Exploratory | grey zone or insufficient data |
+
+**Schema** (`db_schema.sql`): added `avg_food_quality_score REAL` column to
+`food_preference_profile`.
+
+---
+
 ## 0.7.8 - 2026-05-26
 
 Enhancement — DBManager transaction and batch support
-
-- **db_manager.py**: Added `DBManager.transaction()` context manager that yields a shared `sqlite3.Connection` inside a transaction (commits on normal exit, rolls back on exception). Enables multi-step operations to be atomic and consistent.
-- **db_manager.py**: Added `DBManager.execute_many()` for efficient bulk inserts/updates. Uses a single transaction internally — significantly faster for importing large food databases.
-- **db_manager.py**: Added `DBManager.execute_script()` for running multi-statement SQL scripts atomically.
 
 ---
 
