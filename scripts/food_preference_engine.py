@@ -174,6 +174,8 @@ def get_food_fingerprint(
             preferred.append(name)
             continue  # 既然使用者明確喜歡，不再進行象限分類
 
+        candidates.append(dict(r))  # 一般食物加入候選，進入象限分類
+
     favorites: list[str] = []
     problematic: list[str] = []
     exploratory: list[str] = []

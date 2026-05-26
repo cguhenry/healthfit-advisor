@@ -91,9 +91,9 @@ def _build_image_prompt_bundle(forwarded_args: Sequence[str]) -> int:
             progress = get_calorie_progress(db, args.user_id)
             if progress:
                 if not args.remaining_calories:
-                    args.remaining_calories = max(0, int(progress.get("remaining_calories") or 0))
+                    args.remaining_calories = max(0, int(progress.get("calories_remaining") or 0))
                 if not args.protein_gap:
-                    args.protein_gap = max(0, int(progress.get("protein_gap_g") or 0))
+                    args.protein_gap = max(0, int(progress.get("protein_remaining_g") or 0))
             plan = db.get_active_plan(args.user_id)
             if plan:
                 if not args.daily_calorie_target:
@@ -101,7 +101,8 @@ def _build_image_prompt_bundle(forwarded_args: Sequence[str]) -> int:
                 if not args.protein_target_g:
                     args.protein_target_g = int(plan["protein_target_g"] or 0)
                 if not args.goal_type or args.goal_type == "loss":
-                    args.goal_type = plan.get("goal_type", "loss")
+                    plan_dict = dict(plan)
+                    args.goal_type = str(plan_dict.get("goal_type") or "loss")
         except Exception:
             pass  # silently fall back to explicitly provided values
 

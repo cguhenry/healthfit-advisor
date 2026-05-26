@@ -977,14 +977,15 @@ def cmd_plan(args: argparse.Namespace) -> None:
                         (user_id,),
                     )
                     if plan:
-                        if not args.calories and plan["daily_calorie_target"]:
-                            daily_calories = plan["daily_calorie_target"]
-                        if "protein_target_g" in plan and plan["protein_target_g"]:
-                            protein_target = plan["protein_target_g"]
-                        if "carb_target_g" in plan and plan["carb_target_g"]:
-                            carb_target = plan["carb_target_g"]
-                        if "fat_target_g" in plan and plan["fat_target_g"]:
-                            fat_target = plan["fat_target_g"]
+                        plan_dict = dict(plan)
+                        if not args.calories and plan_dict.get("daily_calorie_target"):
+                            daily_calories = plan_dict["daily_calorie_target"]
+                        if plan_dict.get("protein_target_g"):
+                            protein_target = plan_dict["protein_target_g"]
+                        if plan_dict.get("carb_target_g"):
+                            carb_target = plan_dict["carb_target_g"]
+                        if plan_dict.get("fat_target_g"):
+                            fat_target = plan_dict["fat_target_g"]
         except Exception:
             pass  # Fallback to defaults
 
