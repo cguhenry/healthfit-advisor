@@ -103,8 +103,8 @@ def _build_image_prompt_bundle(forwarded_args: Sequence[str]) -> int:
                 if not args.goal_type or args.goal_type == "loss":
                     plan_dict = dict(plan)
                     args.goal_type = str(plan_dict.get("goal_type") or "loss")
-        except Exception:
-            pass  # silently fall back to explicitly provided values
+        except Exception as exc:
+            print(f"[healthfit] WARNING: failed to load active plan context: {exc}", file=sys.stderr)  # noqa: E231
 
     system_prompt, user_prompt = build_llm_prompt(
         AnalysisScenario(args.scenario),

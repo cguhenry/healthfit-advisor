@@ -986,7 +986,8 @@ def cmd_plan(args: argparse.Namespace) -> None:
                             carb_target = plan_dict["carb_target_g"]
                         if plan_dict.get("fat_target_g"):
                             fat_target = plan_dict["fat_target_g"]
-        except Exception:
+        except Exception as exc:
+            print(f"[meal_planner] WARNING: failed to read active plan for macro targets: {exc}", file=sys.stderr)  # noqa: E231
             pass  # Fallback to defaults
 
     macro_targets = {

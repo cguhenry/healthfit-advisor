@@ -245,7 +245,8 @@ def log_meal_analysis(
                 food_name = str(food.get("name") or "").strip()
                 if food_name and food_name != "___MEAL_TOTAL___":
                     update_preference_after_log(db, user_id, food_name, _log_date)
-        except Exception:
+        except Exception as exc:
+            print(f"[calorie_tracker] DEBUG: preference learning skipped: {exc}", file=sys.stderr)  # noqa: E231
             pass  # preference learning failure must never break meal logging
 
     return inserted
