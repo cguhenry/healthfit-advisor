@@ -205,6 +205,8 @@ def update_preference_after_log(
     user_id: str,
     food_name: str,
     log_date: str,
+    *,
+    today: str | None = None,
 ) -> None:
     """Fire-and-forget update after a food_log row is written.
 
@@ -221,7 +223,11 @@ def update_preference_after_log(
         user_id: Target user.
         food_name: Cleaned food name (not ___MEAL_TOTAL___).
         log_date: YYYY-MM-DD of the log event.
+        today: Reference date for recent_count window. Defaults to
+               date.today().isoformat().  Pass an explicit value in tests
+               to make recent_count deterministic.
     """
+    today = today or date.today().isoformat()
     if not food_name or food_name == "___MEAL_TOTAL___":
         return
 
@@ -284,7 +290,7 @@ def update_preference_after_log(
                       FROM food_logs fl
                      WHERE fl.user_id    = food_preference_profile.user_id
                        AND fl.food_name  = food_preference_profile.food_name
-                       AND DATE(fl.log_datetime) >= DATE('now', '-30 day')
+                       AND DATE(fl.log_datetime) >= DATE(?, '-30 day')
                   ),
                   avg_daily_score_when_eaten = (
                     SELECT AVG(ds.daily_score)
@@ -299,7 +305,7 @@ def update_preference_after_log(
                   avg_food_quality_score = ?
                 WHERE user_id = ?
                   AND food_name = ?""",
-            (round(new_food_quality, 1), user_id, food_name),
+            (today, round(new_food_quality, 1), user_id, food_name),
         )
     else:
         db.execute(
@@ -309,7 +315,7 @@ def update_preference_after_log(
                       FROM food_logs fl
                      WHERE fl.user_id    = food_preference_profile.user_id
                        AND fl.food_name  = food_preference_profile.food_name
-                       AND DATE(fl.log_datetime) >= DATE('now', '-30 day')
+                       AND DATE(fl.log_datetime) >= DATE(?, '-30 day')
                   ),
                   avg_daily_score_when_eaten = (
                     SELECT AVG(ds.daily_score)
@@ -323,7 +329,7 @@ def update_preference_after_log(
                   )
                 WHERE user_id = ?
                   AND food_name = ?""",
-            (user_id, food_name),
+            (today, user_id, food_name),
         )
 
 
@@ -331,19 +337,20 @@ def get_food_fingerprint(
     db,
     user_id: str,
     top_n: int = 20,
+    *,
+    today: str | None = None,
 ) -> dict[str, Any]:
     """Return a quadrant‑based food‑fingerprint for user_id.
 
-    Returns:
-        {
-          "favorites":    [...],   # high count + high score
-          "problematic":  [...],   # high count + low score
-          "exploratory":  [...],   # low count + high score (or no score yet)
-          "avoid":        [...],   # never_suggest = 1
-          "preferred":    [...],   # always_suggest = 1
-          "recent_14d":   [...],   # food names eaten in last 14 days (deduped)
-        }
+    Args:
+        db: Initialised DBManager.
+        user_id: Target user.
+        top_n: Maximum items per quadrant.
+        today: Reference date for recent windows.  Defaults to
+               date.today().isoformat().  Pass an explicit value in tests
+               to make date-window queries deterministic.
     """
+    today = today or date.today().isoformat()
     db.initialize()
 
     # Fetch all rows for the user (both tracks of the dual‑track system)
@@ -432,9 +439,9 @@ def get_food_fingerprint(
              FROM food_logs
             WHERE user_id = ?
               AND food_name != '___MEAL_TOTAL___'
-              AND DATE(log_datetime) >= DATE('now', '-14 day')
+              AND DATE(log_datetime) >= DATE(?, '-14 day')
             ORDER BY food_name""",
-        (user_id,),
+        (user_id, today),
     )
     recent_14d = _rows_to_name_list(recent_rows)
 
@@ -448,12 +455,21 @@ def get_food_fingerprint(
     }
 
 
-def get_preference_prompt_context(db, user_id: str) -> str:
+def get_preference_prompt_context(
+    db,
+    user_id: str,
+    *,
+    today: str | None = None,
+) -> str:
     """Return a LLM‑ready text string for meal‑plan prompts.
 
-    Replaces _get_recent_food_preferences() in meal_planner.py.
+    Args:
+        db: Initialised DBManager.
+        user_id: Target user.
+        today: Passed through to get_food_fingerprint.  Defaults to
+               date.today().isoformat().
     """
-    fp = get_food_fingerprint(db, user_id)
+    fp = get_food_fingerprint(db, user_id, today=today)
     lines: list[str] = []
 
     if fp["favorites"]:
