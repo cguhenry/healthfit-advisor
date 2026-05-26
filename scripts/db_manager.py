@@ -4,9 +4,9 @@ from __future__ import annotations
 import sqlite3
 import uuid
 import json
-from contextlib import closing
+from contextlib import closing, contextmanager
 from pathlib import Path
-from typing import Iterable, Mapping, Optional
+from typing import Iterable, Mapping, Optional, Iterator
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 DEFAULT_SCHEMA_PATH = Path(__file__).resolve().with_name("db_schema.sql")
@@ -90,6 +90,57 @@ class DBManager:
         with closing(self.connect()) as conn:
             with conn:
                 conn.execute(query, tuple(params))
+
+    def execute_many(self, query: str, params_iterable: Iterable[Iterable[object]]) -> None:
+        """Execute a query with many parameter sets in one batch.
+
+        More efficient than calling execute() repeatedly when inserting
+        many rows at once. Uses a single transaction internally.
+
+        Args:
+            query: SQL statement (may contain ? placeholders).
+            params_iterable: Iterable of parameter tuples/lists.
+        """
+        with closing(self.connect()) as conn:
+            with conn:
+                conn.executemany(query, [tuple(p) for p in params_iterable])
+
+    def execute_script(self, sql: str) -> None:
+        """Execute multiple SQL statements in one call.
+
+        Automatically wraps in a transaction — commits on success,
+        rolls back on error.
+
+        Args:
+            sql: Multi-statement SQL script string.
+        """
+        with closing(self.connect()) as conn:
+            with conn:
+                conn.executescript(sql)
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """Context manager that yields a connection inside a transaction.
+
+        Usage:
+            with db.transaction() as conn:
+                conn.execute("INSERT INTO ...", (...))
+                conn.execute("UPDATE ...", (...))
+                conn.executemany("INSERT INTO ...", many_params)
+            # commits on normal exit, rolls back on exception
+
+        All work inside the block runs in a single transaction — either all
+        succeed together or all roll back together.
+        """
+        conn = self.connect()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def upsert_user_profile(self, profile: Mapping[str, object]) -> None:
         self.initialize()

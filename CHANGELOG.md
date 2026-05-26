@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.8 - 2026-05-26
+
+Enhancement — DBManager transaction and batch support
+
+- **db_manager.py**: Added `DBManager.transaction()` context manager that yields a shared `sqlite3.Connection` inside a transaction (commits on normal exit, rolls back on exception). Enables multi-step operations to be atomic and consistent.
+- **db_manager.py**: Added `DBManager.execute_many()` for efficient bulk inserts/updates. Uses a single transaction internally — significantly faster for importing large food databases.
+- **db_manager.py**: Added `DBManager.execute_script()` for running multi-statement SQL scripts atomically.
+
+---
+
 ## 0.7.7 - 2026-05-26
 
 Bug fixes batch — preference engine, PDF export, can-i-eat, shopping push
