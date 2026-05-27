@@ -43,6 +43,57 @@ _QUALITY_WEIGHTS = dict(
 )
 
 
+# ── Phase 8: Recency‑decay helpers ──────────────────────────────────────
+from datetime import date
+import math
+
+
+def _parse_date_safe(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _recency_decay_multiplier(
+    *,
+    last_eaten_date: str | None,
+    today: str,
+    half_life_days: int = 45,
+    floor: float = 0.15,
+) -> float:
+    """
+    回傳 0.15~1.0 的衰退係數。
+    half_life_days=45 代表 45 天沒吃，權重剩一半。
+    """
+    last = _parse_date_safe(last_eaten_date)
+    current = _parse_date_safe(today)
+
+    if not last or not current:
+        return floor
+
+    days = max((current - last).days, 0)
+    multiplier = math.pow(0.5, days / half_life_days)
+    return round(max(multiplier, floor), 4)
+
+
+def _preference_strength(
+    *,
+    total_count: int,
+    recent_count: int,
+    last_eaten_date: str | None,
+    today: str,
+) -> float:
+    decay = _recency_decay_multiplier(
+        last_eaten_date=last_eaten_date,
+        today=today,
+    )
+    raw = total_count * 0.35 + recent_count * 0.65
+    return round(raw * decay, 3)
+
+
 def _compute_food_quality_score(
     cal_100g: Optional[float],
     protein_100g: Optional[float],
@@ -408,10 +459,17 @@ def get_food_fingerprint(
     for r in candidates:
         name = r["food_name"]
         total = int(r["total_count"] or 0)
+        recent = int(r["recent_count"] or 0)
+        strength = _preference_strength(
+            total_count=total,
+            recent_count=recent,
+            last_eaten_date=r["last_eaten_date"],
+            today=today,
+        )
         daily = r["avg_daily_score_when_eaten"]   # may be None
         fq    = r["avg_food_quality_score"]        # may be None
 
-        if total >= MIN_TOTAL_FOR_CLASSIFICATION:
+        if strength >= MIN_TOTAL_FOR_CLASSIFICATION:
             # Compute final dual‑track score; prefer quality if daily is missing
             if daily is not None and fq is not None:
                 final = daily * 0.6 + fq * 0.4
@@ -425,7 +483,7 @@ def get_food_fingerprint(
 
             if final >= 65:
                 favorites.append(name)
-            elif final <= 40 and total >= MIN_COUNT_FOR_PROBLEMATIC:
+            elif final <= 40 and strength >= MIN_COUNT_FOR_PROBLEMATIC:
                 problematic.append(name)
             else:
                 exploratory.append(name)
@@ -433,17 +491,23 @@ def get_food_fingerprint(
             if total > 0:
                 exploratory.append(name)
 
-    # Sort each quadrant by total_count desc, then name asc
-    _sort_by_count = lambda names, rows: sorted(
-        names,
-        key=lambda n: next(
-            (-(int(r["total_count"] or 0)) for r in rows if r["food_name"] == n), 0
-        ),
-    )
+    # Phase 8: build strength lookup once for sorting
+    strength_by_name = {
+        r["food_name"]: _preference_strength(
+            total_count=int(r["total_count"] or 0),
+            recent_count=int(r["recent_count"] or 0),
+            last_eaten_date=r["last_eaten_date"],
+            today=today,
+        )
+        for r in all_rows
+    }
 
-    favorites = _sort_by_count(favorites, all_rows)
-    problematic = _sort_by_count(problematic, all_rows)
-    exploratory = _sort_by_count(exploratory, all_rows)
+    def _sort_by_strength(names: list[str]) -> list[str]:
+        return sorted(names, key=lambda n: (-strength_by_name.get(n, 0), n))
+
+    favorites = _sort_by_strength(favorites)
+    problematic = _sort_by_strength(problematic)
+    exploratory = _sort_by_strength(exploratory)
 
     # ---- recent 14d from food_logs (robust, not dependent on profile table) ----
     recent_rows = db.fetchall(
