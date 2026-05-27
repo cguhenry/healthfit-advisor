@@ -39,6 +39,74 @@ Verdict = Literal["yes", "yes_with_caveat", "marginal", "no"]
 
 
 @dataclass
+class PortionAdjustment:
+    """Portion downscaling recommendation when the original portion exceeds budget."""
+    original_quantity: float
+    suggested_quantity: float
+    suggested_grams: float
+    calorie_fit_ratio: float  # 0.0–1.0, remaining / original calories
+    portion_label: str
+    portion_advice: str
+
+
+def _build_portion_adjustment(
+    *,
+    food_name: str,
+    food_calories: float,
+    serving_g: float,
+    quantity: float,
+    remaining: float,
+    min_ratio: float = 0.35,
+) -> PortionAdjustment | None:
+    """
+    Based on today's remaining calories, compute a suggested down-scaled portion.
+
+    Returns None when the original portion fits within the budget (ratio >= 1).
+    """
+    if food_calories <= 0 or serving_g <= 0:
+        return None
+
+    if remaining <= 0:
+        return PortionAdjustment(
+            original_quantity=quantity,
+            suggested_quantity=0,
+            suggested_grams=0,
+            calorie_fit_ratio=0,
+            portion_label="不建議再吃",
+            portion_advice=(
+                f"今日已無熱量空間，不建議再吃 {food_name}。"
+            ),
+        )
+
+    ratio = remaining / food_calories  # 0 < ratio < 1 means over budget
+
+    if ratio >= 1:
+        return None  # original portion is fine
+
+    if ratio < min_ratio:
+        portion_label = "不建議吃這份"
+        advice = (
+            f"今日剩餘熱量只夠原份量的 {ratio:.0%}，"
+            f"低於最低建議份量 {min_ratio:.0%}，建議改選替代品。"
+        )
+    else:
+        portion_label = f"建議吃 {ratio:.0%} 份"
+        advice = (
+            f"原份量會超出今日剩餘熱量；建議改成約 {ratio:.0%} 份，"
+            f"約 {serving_g * quantity * ratio:.0f} g。"
+        )
+
+    return PortionAdjustment(
+        original_quantity=quantity,
+        suggested_quantity=round(quantity * ratio, 2),
+        suggested_grams=round(serving_g * quantity * ratio, 1),
+        calorie_fit_ratio=round(ratio, 3),
+        portion_label=portion_label,
+        portion_advice=advice,
+    )
+
+
+@dataclass
 class CanIEatResult:
     food_name: str
     matched_food_display: str  # e.g. "豚骨拉麵（估算一份）"
@@ -56,6 +124,7 @@ class CanIEatResult:
     confidence: float = 0.0  # search match confidence
     source_type: Literal["db", "heuristic"] = "db"  # "db" = found in food DB, "heuristic" = estimated
     low_confidence: bool = False  # True when DB match confidence < 0.5
+    portion_adjustment: PortionAdjustment | None = None  # suggested downscale when over budget
 
     # Backward-compat alias so legacy code / tests that access _is_estimate still work
     @property
@@ -316,11 +385,13 @@ def check_can_i_eat(
         food_cal = ni.calories_for(grams)
         food_prot = ni.protein_for(grams)
         confidence = best.match_score
+        matched_name = ni.food_name
         source_type = "db"
         low_confidence = confidence < 0.5
     else:
         # No match in DB — use heuristic defaults
-        grams = _default_serving_for(food_query) * quantity
+        serving_g = _default_serving_for(food_query)
+        grams = serving_g * quantity
         # Rough calorie-per-100g estimate for unknown food
         food_cal = grams * 2.5  # ~250 kcal / 100g default
         food_prot = grams * 0.05  # ~5g protein / 100g default
@@ -336,13 +407,22 @@ def check_can_i_eat(
         food_cal, calories_remaining, daily_target, goal_type
     )
 
-    # 4) Alternatives (only when verdict != yes)
+    # 4) Portion adjustment (if over budget)
+    portion_adjustment = _build_portion_adjustment(
+        food_name=food_query,
+        food_calories=food_cal,
+        serving_g=serving_g,
+        quantity=quantity,
+        remaining=calories_remaining,
+    )
+
+    # 5) Alternatives (only when verdict != yes)
     if verdict == "yes":
         alternatives: list[str] = []
     else:
         alternatives = _build_alternatives(food_query, calories_remaining, protein_gap_before)
 
-    # 5) Adjusted meal suggestion
+    # 6) Adjusted meal suggestion
     if verdict in ("yes", "yes_with_caveat", "marginal"):
         adjusted = _build_adjusted_suggestion(
             food_cal, calories_remaining, protein_gap_after,
@@ -388,6 +468,7 @@ def check_can_i_eat(
         confidence=confidence,
         source_type=source_type,
         low_confidence=low_confidence,
+        portion_adjustment=portion_adjustment,
     )
 
 
@@ -408,6 +489,14 @@ def format_result(result: CanIEatResult) -> str:
 
     lines.append(result.advice)
     lines.append("")
+
+    # Portion adjustment — show whenever a downscale is recommended
+    if result.portion_adjustment:
+        pa = result.portion_adjustment
+        lines.append(f"📏 份量調整：")
+        lines.append(f"• {pa.portion_label}")
+        lines.append(f"• {pa.portion_advice}")
+        lines.append("")
 
     if result.verdict in ("marginal", "no"):
         if result.adjusted_meal_suggestion:

@@ -1,4 +1,25 @@
 # Changelog
+
+## 0.8.0 - 2026-05-27
+
+Phase 8 Feature 1 — `can_i_eat.py` 加入替代份量計算
+
+**功能**：當食物熱量超過今日剩餘預算時，主動計算並顯示建議份量。
+
+- 新增 `PortionAdjustment` dataclass，包含 `suggested_quantity`、`suggested_grams`、
+  `calorie_fit_ratio`、`portion_label`、`portion_advice`
+- 新增 `_build_portion_adjustment()` 函式：
+  - `remaining <= 0` → 建議不吃
+  - `ratio >= 1` → 原份量可接受，回傳 None
+  - `ratio < 35%` → 建議改選替代品
+  - 其餘 → 顯示建議吃的比例與公克數
+- `check_can_i_eat()` 在取得 food match 後呼叫 `_build_portion_adjustment()`，結果存入
+  `CanIEatResult.portion_adjustment`
+- `format_result()` 在 advice 後方顯示 📏 份量調整區塊
+- 附带修正：DB match 分支原本未設定 `matched_name`，導致輸出為空；一併修正在此變動中
+
+---
+
 ## 0.7.10 - 2026-05-27
 
 Bug 22 — off-by-one in `update_preference_after_log()` rolling average
