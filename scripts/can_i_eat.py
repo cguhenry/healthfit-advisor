@@ -18,7 +18,9 @@ import json
 import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal, Optional, cast
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -26,6 +28,8 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from calorie_tracker import get_calorie_progress
 from db_manager import DBManager
+from dining_context_engine import recommend_without_menu
+from dining_models import GoalType
 from food_db_lookup import FoodDBLookup, SearchResult
 from food_preference_engine import get_food_fingerprint
 from data_quality import estimate_nutrition_quality, MatchMethod  # noqa: PLC0415
@@ -348,6 +352,8 @@ def check_can_i_eat(
     quantity: float = 1.0,
     meal_type: Optional[str] = None,
     log_date: Optional[str] = None,
+    scene: Optional[str] = None,
+    require_low_gi: bool = False,
 ) -> CanIEatResult:
     """
     Determine if the user can eat a given food within today's calorie budget.
@@ -448,6 +454,37 @@ def check_can_i_eat(
         alternatives: list[str] = []
     else:
         alternatives = _build_alternatives(food_query, calories_remaining, protein_gap_before)
+
+    # 5b) Scene dining recommendations (when --scene is given and food is not ideal)
+    dining_rec_added = False
+    if scene and verdict in ("marginal", "no", "yes_with_caveat"):
+        try:
+            dining_rec = recommend_without_menu(
+                scene=scene,
+                calories_remaining=calories_remaining,
+                protein_gap_g=protein_gap_before,
+                goal_type=cast(GoalType, goal_type),
+                require_low_gi=require_low_gi,
+                top_n=3,
+            )
+            if dining_rec.recommended:
+                alternatives.append("同類型店家可考慮：")
+                for scored in dining_rec.recommended:
+                    item = scored.item
+                    cal_str = (
+                        f"{item.estimated_calories:.0f} kcal"
+                        if item.estimated_calories is not None
+                        else "熱量未知"
+                    )
+                    prot_str = (
+                        f"{item.estimated_protein_g:.0f}g 蛋白質"
+                        if item.estimated_protein_g is not None
+                        else "蛋白質未知"
+                    )
+                    alternatives.append(f"  • {item.name}｜{cal_str}｜{prot_str}")
+                dining_rec_added = True
+        except Exception:
+            pass  # dining rec is best-effort; don't crash the whole check
 
     # 6) Adjusted meal suggestion
     if verdict in ("yes", "yes_with_caveat", "marginal"):
@@ -580,6 +617,23 @@ def main() -> None:
     parser.add_argument("--db-path", "-d", default=str(DEFAULT_DB_PATH))
     parser.add_argument("--date", help="查詢日期（YYYY-MM-DD，預設今天）")
     parser.add_argument("--json", action="store_true", help="輸出 JSON 格式")
+    parser.add_argument(
+        "--scene",
+        choices=[
+            "breakfast_shop",
+            "bento_shop",
+            "convenience_store",
+            "bubble_tea",
+            "luwei",
+            "hotpot",
+            "noodle_shop",
+        ],
+        help="外食場景，例如 breakfast_shop, bento_shop, bubble_tea",
+    )
+    parser.add_argument(
+        "--low-gi", action="store_true",
+        help="開啟低 GI 飲食需求（傳給外食推薦引擎）",
+    )
 
     args = parser.parse_args()
 
@@ -591,6 +645,8 @@ def main() -> None:
         quantity=args.quantity,
         meal_type=args.meal_type,
         log_date=args.date,
+        scene=getattr(args, "scene", None),
+        require_low_gi=getattr(args, "low_gi", False),
     )
 
     if args.json:
