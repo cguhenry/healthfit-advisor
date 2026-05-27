@@ -9,7 +9,9 @@ from pathlib import Path
 from db_manager import DBManager
 from dining_context_engine import recommend_from_menu_items, recommend_without_menu
 from dining_user_context import load_dining_user_context
+from menu_image_analyzer import parse_menu_items_from_llm_json
 from restaurant_scenarios import list_supported_scenes
+from recommendation_explainer import explain_recommendation
 from user_restaurant_repository import (
     load_user_restaurant_items,
     load_user_restaurant_profile,
@@ -110,6 +112,21 @@ def main() -> int:
     )
     parser.add_argument("--top-n", type=int, default=5)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--menu-json",
+        help="直接讀取 JSON 檔案（如同 LLM 回傳格式）做推薦，"
+            "不需 vision API。格式：{\"restaurant_type\": \"...\", \"items\": [...]}",
+    )
+    parser.add_argument(
+        "--llm-explain",
+        action="store_true",
+        help="使用 LLM 將結構化推薦結果整理成自然語言說明",
+    )
+    parser.add_argument(
+        "--llm-model",
+        default="gpt-4o",
+        help="LLM model name（預設 gpt-4o）",
+    )
 
     args = parser.parse_args()
 
@@ -147,10 +164,31 @@ def main() -> int:
         goal_type = args.goal_type or "loss"
         require_low_gi = args.low_gi
 
-    # ── Resolve recommendation (personal restaurant vs generic scene) ──────
+    # ── Resolve recommendation (menu-json vs personal restaurant vs generic) ─
     result = None
 
-    if args.user_id and args.restaurant_name:
+    if args.menu_json:
+        import os
+
+        json_path = Path(args.menu_json).expanduser()
+        raw = json_path.read_text(encoding="utf-8")
+        _, items = parse_menu_items_from_llm_json(raw)
+        result = recommend_from_menu_items(
+            items=items,
+            scene=args.scene,
+            calories_remaining=calories_remaining,
+            protein_gap_g=protein_gap_g,
+            goal_type=goal_type,
+            require_low_gi=require_low_gi,
+            top_n=args.top_n,
+        )
+        result.summary = f"已根據 JSON 檔案「{args.menu_json}」推薦。"
+        print(
+            f"📋 從 JSON 載入 {len(items)} 項品項",
+            file=sys.stderr,
+        )
+
+    elif args.user_id and args.restaurant_name:
         _db = DBManager(Path(args.db_path).expanduser())
         profile = load_user_restaurant_profile(
             _db,
@@ -191,7 +229,25 @@ def main() -> int:
             top_n=args.top_n,
         )
 
-    if args.json:
+    # ── Output ─────────────────────────────────────────────────────────────
+    if args.llm_explain:
+        user_context = {
+            "calories_remaining": calories_remaining,
+            "protein_gap_g": protein_gap_g,
+            "goal_type": goal_type,
+            "require_low_gi": require_low_gi,
+        }
+        try:
+            explanation = explain_recommendation(
+                user_context=user_context,
+                recommendation=result.to_dict(),
+                model=args.llm_model,
+            )
+            print(explanation)
+        except Exception as exc:
+            print(f"⚠️ LLM 說明失敗：{exc}", file=sys.stderr)
+            print(format_recommendation(result))
+    elif args.json:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
     else:
         print(format_recommendation(result))

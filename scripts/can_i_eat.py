@@ -577,18 +577,15 @@ def format_result(result: CanIEatResult) -> str:
         lines.append(f"• {pa.portion_advice}")
         lines.append("")
 
-    if result.verdict in ("marginal", "no"):
-        if result.adjusted_meal_suggestion:
-            lines.append(f"💡 建議：\n{result.adjusted_meal_suggestion}")
-            lines.append("")
+    if result.adjusted_meal_suggestion:
+        lines.append(f"💡 建議：\n{result.adjusted_meal_suggestion}")
+        lines.append("")
+
+    if result.verdict in ("marginal", "no", "yes_with_caveat"):
         if result.alternatives:
             lines.append(f"🔄 替代選項：")
             for alt in result.alternatives:
                 lines.append(f"• {alt}")
-            lines.append("")
-    elif result.verdict in ("yes", "yes_with_caveat"):
-        if result.adjusted_meal_suggestion:
-            lines.append(f"💡 建議：\n{result.adjusted_meal_suggestion}")
             lines.append("")
 
     if abs(result.protein_gap_after) > 5:

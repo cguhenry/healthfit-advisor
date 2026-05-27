@@ -5,7 +5,9 @@ description = "OpenClaw skill for safe Phase 1 health and body-weight planning w
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{ name = "Henry" }]
-dependencies = []
+dependencies = [
+    "requests>=2.31.0",
+]
 
 [project.optional-dependencies]
 pdf = ["fpdf2>=2.7"]

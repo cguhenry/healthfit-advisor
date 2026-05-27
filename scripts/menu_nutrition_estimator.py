@@ -265,8 +265,22 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
         return item
 
     # -------------------------
-    # fallback
+    # fallback — but skip if item already has credible external data
     # -------------------------
+    has_external_nutrition = (
+        item.estimated_calories is not None
+        or item.estimated_protein_g is not None
+        or item.estimated_carb_g is not None
+        or item.estimated_fat_g is not None
+    )
+
+    if has_external_nutrition:
+        # brand_db / user_restaurant_profile items already carry verified data;
+        # don't demote their confidence just because rule-based missed them.
+        if item.source in ("brand_db", "user_restaurant_profile"):
+            item.confidence = max(item.confidence, 0.75)
+        return item
+
     _add_tag(item, "unknown_nutrition")
     item.confidence = min(item.confidence, 0.45)
     return item
