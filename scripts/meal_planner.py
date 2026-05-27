@@ -340,9 +340,23 @@ def _build_planning_prompt(
     dietary_restrictions: list[str],
     preference_context: str,
     days: int,
+    conflict_text: str = "無明顯限制衝突。",
 ) -> str:
+    priority_order = (
+        "請在產生菜單時遵守以下優先順序：\n"
+        "1. 安全與健康風險\n"
+        "2. 每日熱量目標\n"
+        "3. 蛋白質目標\n"
+        "4. 使用者明確限制\n"
+        "5. 便利性與菜色多樣性"
+    )
     return f"""
 你是一位專業的台灣飲食計劃師。請為使用者制定 {days} 天的飲食計劃。
+
+== 目標衝突分析 ==
+{conflict_text}
+
+{priority_order}
 
 == 營養目標（每日）==
 - 總熱量：{daily_calories} kcal（允許 ±5%）
@@ -679,6 +693,28 @@ def generate_optimized_meal_plan(
     # Use food fingerprint engine (replaces _get_recent_food_preferences +
     # _get_low_score_patterns with quadrant-based classification)
     from food_preference_engine import get_preference_prompt_context  # noqa: PLC0415
+    from goal_conflict_engine import analyze_goal_conflicts  # noqa: PLC0415
+
+    conflicts = analyze_goal_conflicts(
+        daily_calories=daily_calories,
+        protein_target_g=int(macro_targets.get("protein_g", 0)) or None,
+        carb_target_g=int(macro_targets.get("carb_g", 0)) or None,
+        fat_target_g=int(macro_targets.get("fat_g", 0)) or None,
+        restrictions=dietary_restrictions,
+        meal_preference=meal_preference,
+        cuisine_pref=cuisine_pref,
+        require_low_gi="low_gi" in dietary_restrictions,
+        require_low_budget="budget" in dietary_restrictions,
+        require_convenience="convenience" in dietary_restrictions,
+        avoid_recent_repetition=True,
+    )
+    if conflicts:
+        conflict_text = "\n".join(
+            f"- [{c.severity}] {c.message} 建議：{c.suggestion}"
+            for c in conflicts
+        )
+    else:
+        conflict_text = "無明顯限制衝突。"
 
     preference_context = get_preference_prompt_context(db, user_id)
     prompt = _build_planning_prompt(
@@ -689,6 +725,7 @@ def generate_optimized_meal_plan(
         dietary_restrictions=dietary_restrictions or [],
         preference_context=preference_context,
         days=days,
+        conflict_text=conflict_text,
     )
 
     validation_result: Optional[dict[str, Any]] = None
@@ -705,10 +742,22 @@ def generate_optimized_meal_plan(
             expected_days=days,
         )
         if validation_result.get("valid"):
+            validation_result["summary"]["goal_conflicts"] = [c.to_dict() for c in conflicts]
             if persist:
                 persist_meal_plan(db, user_id, validation_result)
             return validation_result
         prompt = _build_correction_prompt(prompt, validation_result.get("violations", []))
+
+    validation_result["summary"]["goal_conflicts"] = [c.to_dict() for c in conflicts]
+
+    # Build conflict_text for fallback too
+    if conflicts:
+        conflict_text = "\n".join(
+            f"- [{c.severity}] {c.message} 建議：{c.suggestion}"
+            for c in conflicts
+        )
+    else:
+        conflict_text = "無明顯限制衝突。"
 
     fallback = generate_meal_plan(
         daily_calories=daily_calories,
@@ -719,6 +768,7 @@ def generate_optimized_meal_plan(
     fallback["summary"]["source"] = "template_fallback"
     if validation_result and validation_result.get("violations"):
         fallback["summary"]["fallback_reason"] = validation_result["violations"]
+    fallback["summary"]["goal_conflicts"] = [c.to_dict() for c in conflicts]
     if persist:
         persist_meal_plan(db, user_id, fallback)
     return fallback
