@@ -41,6 +41,7 @@ Enhancement — DBManager transaction and batch support
 - **meal_planner.py**: `_get_recent_food_preferences()`、`_get_low_score_patterns()` 移除 SQLite `DATE('now', ?)` 改為參數化 `DATE(?, ?)` 並新增 `today` 參數，行為與 food_preference_engine.py 一致
 - **can_i_eat.py**: 找到 DB 食物時優先使用 `serving_size_g` 而非 `_default_serving_for()`，讓食品資料庫的建議份量真正生效
 - **can_i_eat.py**: 將 `is_estimate = confidence < 0.5` 拆分為 `source_type: Literal["db", "heuristic"]` + `low_confidence: bool`，語意更精確；保留 `_is_estimate` 作為 `@property` backward-compat
+- **can_i_eat.py**: 將 `protein_gap` 拆分為 `protein_gap_before` / `protein_gap_after`，advice 與 output 均使用吃後缺口；保留 `protein_gap` 作為 `@property` backward-compat
 
 ## 0.7.7 - 2026-05-26
 

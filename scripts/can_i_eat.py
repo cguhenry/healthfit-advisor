@@ -47,7 +47,8 @@ class CanIEatResult:
     calories_remaining: float
     daily_target: int
     goal_type: str
-    protein_gap: float  # positive = still needed, negative = already exceeded
+    protein_gap_before: float  # positive = still needed before eating this food
+    protein_gap_after: float   # positive = still needed after eating this food
     verdict: Verdict
     advice: str
     alternatives: list[str]  # replacement suggestions when verdict != "yes"
@@ -60,6 +61,11 @@ class CanIEatResult:
     @property
     def _is_estimate(self) -> bool:
         return self.source_type == "heuristic"
+
+    # Backward-compat: old single protein_gap was "before eating" semantics
+    @property
+    def protein_gap(self) -> float:
+        return self.protein_gap_before
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -290,7 +296,7 @@ def check_can_i_eat(
         daily_target = 2000
     protein_consumed = float(progress.get("protein_consumed_g", 0))
     protein_target = float(progress.get("protein_target_g", 0))
-    protein_gap = protein_target - protein_consumed  # positive = still need more
+    protein_gap_before = protein_target - protein_consumed
 
     # Get goal_type from active plan
     plan = db.get_active_plan(user_id)
@@ -323,6 +329,8 @@ def check_can_i_eat(
         source_type = "heuristic"
         low_confidence = True
 
+    protein_gap_after = protein_gap_before - food_prot  # after eating this food
+
     # 3) Verdict
     verdict, advice = _determine_verdict(
         food_cal, calories_remaining, daily_target, goal_type
@@ -332,22 +340,22 @@ def check_can_i_eat(
     if verdict == "yes":
         alternatives: list[str] = []
     else:
-        alternatives = _build_alternatives(food_query, calories_remaining, protein_gap)
+        alternatives = _build_alternatives(food_query, calories_remaining, protein_gap_before)
 
     # 5) Adjusted meal suggestion
     if verdict in ("yes", "yes_with_caveat", "marginal"):
         adjusted = _build_adjusted_suggestion(
-            food_cal, calories_remaining, protein_gap,
+            food_cal, calories_remaining, protein_gap_after,
             food_query, meal_type, goal_type
         )
     else:
         adjusted = ""  # no verdict only
 
     # Protein gap note
-    if protein_gap > 10 and verdict != "no":
+    if protein_gap_after > 10 and verdict != "no":
         advice += (
-            f"\n⚠️ 今日蛋白質還差 {protein_gap:.0f}g，"
-            "即使吃這份也要記得補蛋白質。"
+            f"\n⚠️ 吃完這份後蛋白質還差 {protein_gap_after:.0f}g，"
+            "建議加一顆溫泉蛋或豆腐補回來。"
         )
 
     # Low-confidence disclaimer — only shown when we had no real DB data
@@ -371,7 +379,8 @@ def check_can_i_eat(
         calories_remaining=round(calories_remaining, 1),
         daily_target=daily_target,
         goal_type=goal_type,
-        protein_gap=round(protein_gap, 1),
+        protein_gap_before=round(protein_gap_before, 1),
+        protein_gap_after=round(protein_gap_after, 1),
         verdict=verdict,
         advice=advice,
         alternatives=alternatives,
@@ -414,9 +423,9 @@ def format_result(result: CanIEatResult) -> str:
             lines.append(f"💡 建議：\n{result.adjusted_meal_suggestion}")
             lines.append("")
 
-    if result.protein_gap > 5:
-        gap_label = "還差" if result.protein_gap > 0 else "已超標"
-        lines.append(f"🥩 蛋白質缺口：{gap_label} {abs(result.protein_gap):.0f}g")
+    if result.protein_gap_after > 5:
+        gap_label = "還差" if result.protein_gap_after > 0 else "已超標"
+        lines.append(f"🥩 吃完後蛋白質{gap_label} {abs(result.protein_gap_after):.0f}g")
 
     return "\n".join(lines)
 
