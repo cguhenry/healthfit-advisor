@@ -53,11 +53,17 @@ class CanIEatResult:
     alternatives: list[str]  # replacement suggestions when verdict != "yes"
     adjusted_meal_suggestion: str  # "可以吃，但今天晚餐建議..."
     confidence: float = 0.0  # search match confidence
-    _is_estimate: bool = False  # True when food wasn't in DB
+    source_type: Literal["db", "heuristic"] = "db"  # "db" = found in food DB, "heuristic" = estimated
+    low_confidence: bool = False  # True when DB match confidence < 0.5
+
+    # Backward-compat alias so legacy code / tests that access _is_estimate still work
+    @property
+    def _is_estimate(self) -> bool:
+        return self.source_type == "heuristic"
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        d["_is_estimate"] = self._is_estimate
+        d["_is_estimate"] = self.source_type == "heuristic"  # keep legacy key for compat
         return d
 
 
@@ -304,8 +310,8 @@ def check_can_i_eat(
         food_cal = ni.calories_for(grams)
         food_prot = ni.protein_for(grams)
         confidence = best.match_score
-        matched_name = ni.food_name
-        is_estimate = confidence < 0.5
+        source_type = "db"
+        low_confidence = confidence < 0.5
     else:
         # No match in DB — use heuristic defaults
         grams = _default_serving_for(food_query) * quantity
@@ -314,7 +320,8 @@ def check_can_i_eat(
         food_prot = grams * 0.05  # ~5g protein / 100g default
         confidence = 0.0
         matched_name = f"{food_query}（估算）"
-        is_estimate = True
+        source_type = "heuristic"
+        low_confidence = True
 
     # 3) Verdict
     verdict, advice = _determine_verdict(
@@ -343,14 +350,14 @@ def check_can_i_eat(
             "即使吃這份也要記得補蛋白質。"
         )
 
-    # Low-confidence disclaimer
-    if is_estimate:
+    # Low-confidence disclaimer — only shown when we had no real DB data
+    if source_type == "heuristic":
         advice += (
             "\n⚠️ 系統未找到精確資料，熱量為估算值，"
             "實際數值可能有 ±20% 誤差。"
         )
 
-    if is_estimate:
+    if source_type == "heuristic":
         matched_food_display = f"{matched_name}（估算 1 份）"
     else:
         quantity_str = "" if quantity == 1.0 else f" × {quantity:.0g}"
@@ -370,7 +377,8 @@ def check_can_i_eat(
         alternatives=alternatives,
         adjusted_meal_suggestion=adjusted,
         confidence=confidence,
-        _is_estimate=is_estimate,
+        source_type=source_type,
+        low_confidence=low_confidence,
     )
 
 
