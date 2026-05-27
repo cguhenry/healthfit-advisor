@@ -6,9 +6,14 @@ import json
 import sys
 from pathlib import Path
 
-from dining_context_engine import recommend_without_menu
+from db_manager import DBManager
+from dining_context_engine import recommend_from_menu_items, recommend_without_menu
 from dining_user_context import load_dining_user_context
 from restaurant_scenarios import list_supported_scenes
+from user_restaurant_repository import (
+    load_user_restaurant_items,
+    load_user_restaurant_profile,
+)
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -99,6 +104,10 @@ def main() -> int:
         action="store_true",
         help="手動開啟低 GI 模式（DB 有記錄時自動套用，可疊加覆寫）",
     )
+    parser.add_argument(
+        "--restaurant-name",
+        help="使用者常去店家名稱（有設定時優先使用個人店家資料）",
+    )
     parser.add_argument("--top-n", type=int, default=5)
     parser.add_argument("--json", action="store_true")
 
@@ -138,14 +147,49 @@ def main() -> int:
         goal_type = args.goal_type or "loss"
         require_low_gi = args.low_gi
 
-    result = recommend_without_menu(
-        scene=args.scene,
-        calories_remaining=calories_remaining,
-        protein_gap_g=protein_gap_g,
-        goal_type=goal_type,
-        require_low_gi=require_low_gi,
-        top_n=args.top_n,
-    )
+    # ── Resolve recommendation (personal restaurant vs generic scene) ──────
+    result = None
+
+    if args.user_id and args.restaurant_name:
+        _db = DBManager(Path(args.db_path).expanduser())
+        profile = load_user_restaurant_profile(
+            _db,
+            user_id=args.user_id,
+            restaurant_name=args.restaurant_name,
+        )
+        items = load_user_restaurant_items(
+            _db,
+            user_id=args.user_id,
+            restaurant_name=args.restaurant_name,
+        )
+
+        if profile and items:
+            result = recommend_from_menu_items(
+                items=items,
+                scene=profile["scene"],
+                calories_remaining=calories_remaining,
+                protein_gap_g=protein_gap_g,
+                goal_type=goal_type,
+                require_low_gi=require_low_gi,
+                top_n=args.top_n,
+            )
+            result.summary = (
+                f"以下根據你儲存的「{args.restaurant_name}」菜單資料推薦。"
+            )
+            print(
+                f"📍 使用個人店家資料：{args.restaurant_name}（共 {len(items)} 項品項）",
+                file=sys.stderr,
+            )
+
+    if result is None:
+        result = recommend_without_menu(
+            scene=args.scene,
+            calories_remaining=calories_remaining,
+            protein_gap_g=protein_gap_g,
+            goal_type=goal_type,
+            require_low_gi=require_low_gi,
+            top_n=args.top_n,
+        )
 
     if args.json:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))

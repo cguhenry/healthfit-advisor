@@ -204,3 +204,33 @@ CREATE TABLE IF NOT EXISTS food_preference_profile (
     updated_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, food_name)
 );
+
+-- Phase 2B: 使用者常去店家個人資料
+CREATE TABLE IF NOT EXISTS user_restaurant_profiles (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT    NOT NULL,
+    restaurant_name TEXT    NOT NULL,
+    scene           TEXT    NOT NULL,
+    notes           TEXT,
+    created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, restaurant_name)
+);
+
+CREATE TABLE IF NOT EXISTS user_restaurant_menu_items (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             TEXT    NOT NULL,
+    restaurant_name     TEXT    NOT NULL,
+    item_name           TEXT    NOT NULL,
+    category            TEXT,
+    price               INTEGER,
+    estimated_calories  REAL,
+    estimated_protein_g REAL,
+    estimated_carb_g    REAL,
+    estimated_fat_g     REAL,
+    tags                TEXT,
+    notes               TEXT,
+    created_at          TEXT    DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TEXT    DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, restaurant_name, item_name)
+);
