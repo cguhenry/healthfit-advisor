@@ -1,0 +1,323 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from dining_models import RestaurantScenarioTemplate
+
+
+SCENARIOS: dict[str, RestaurantScenarioTemplate] = {
+    "breakfast_shop": RestaurantScenarioTemplate(
+        scene="breakfast_shop",
+        display_name="早餐店",
+        common_items=[
+            "蛋餅",
+            "蛋餅加蛋",
+            "鮪魚蛋吐司",
+            "里肌蛋吐司",
+            "雞肉蛋堡",
+            "蘿蔔糕",
+            "鐵板麵",
+            "薯餅",
+            "熱狗",
+            "雞塊",
+            "奶茶",
+            "紅茶",
+            "無糖豆漿",
+            "茶葉蛋",
+        ],
+        recommended_patterns=[
+            "鮪魚蛋吐司少醬",
+            "里肌蛋吐司少醬",
+            "蛋餅加蛋少醬",
+            "茶葉蛋",
+            "無糖豆漿",
+        ],
+        avoid_patterns=[
+            "奶茶",
+            "薯餅",
+            "炸雞塊",
+            "熱狗",
+            "鐵板麵加蛋加肉",
+            "厚片吐司加甜醬",
+        ],
+        customization_rules=[
+            "美乃滋減半或不要",
+            "醬油膏少量",
+            "飲料選無糖",
+            "可加蛋提高蛋白質",
+            "避免薯餅、雞塊、熱狗等油炸或加工配料",
+        ],
+        risk_notes=[
+            "早餐店奶茶通常含糖且熱量高。",
+            "鐵板麵主食比例高，蛋白質通常不足。",
+            "薯餅、雞塊、熱狗油脂或加工食品比例偏高。",
+        ],
+    ),
+
+    "bento_shop": RestaurantScenarioTemplate(
+        scene="bento_shop",
+        display_name="便當店",
+        common_items=[
+            "烤雞腿便當",
+            "滷雞腿便當",
+            "炸雞腿便當",
+            "排骨便當",
+            "魚排便當",
+            "雞胸便當",
+            "控肉飯",
+            "三杯雞便當",
+            "青菜",
+            "滷蛋",
+            "白飯",
+        ],
+        recommended_patterns=[
+            "烤雞腿便當飯半碗青菜加倍",
+            "滷雞腿便當飯半碗",
+            "雞胸便當飯半碗",
+            "魚便當避免油炸",
+            "滷蛋加青菜",
+        ],
+        avoid_patterns=[
+            "炸排骨便當",
+            "炸雞腿便當",
+            "控肉飯",
+            "三寶飯",
+            "滷汁淋飯",
+        ],
+        customization_rules=[
+            "飯半碗",
+            "青菜加倍",
+            "不要淋滷汁",
+            "主菜優先選烤、滷、蒸，少選炸",
+            "可加滷蛋補蛋白質",
+        ],
+        risk_notes=[
+            "便當店白飯與滷汁容易讓熱量超標。",
+            "炸排骨、炸雞腿脂肪較高。",
+            "三寶飯、控肉飯通常油脂偏高。",
+        ],
+    ),
+
+    "convenience_store": RestaurantScenarioTemplate(
+        scene="convenience_store",
+        display_name="便利商店",
+        common_items=[
+            "茶葉蛋",
+            "烤雞胸",
+            "地瓜",
+            "御飯糰",
+            "生菜沙拉",
+            "無糖豆漿",
+            "無糖茶",
+            "優格",
+            "飯糰",
+            "三明治",
+            "微波便當",
+        ],
+        recommended_patterns=[
+            "烤雞胸加地瓜加無糖茶",
+            "茶葉蛋加無糖豆漿加生菜沙拉",
+            "雞胸沙拉醬半包",
+            "地瓜加茶葉蛋",
+        ],
+        avoid_patterns=[
+            "炸雞",
+            "奶茶",
+            "含糖咖啡",
+            "大份微波義大利麵",
+            "菠蘿麵包",
+            "甜甜圈",
+        ],
+        customization_rules=[
+            "沙拉醬半包或不要",
+            "飲料選無糖",
+            "主食用地瓜取代甜麵包",
+            "蛋白質不足時加茶葉蛋或雞胸",
+        ],
+        risk_notes=[
+            "便利商店組合容易蛋白質不足。",
+            "麵包、甜點、含糖飲料會快速增加熱量。",
+            "沙拉本身熱量低，但醬料可能明顯增加熱量。",
+        ],
+    ),
+
+    "bubble_tea": RestaurantScenarioTemplate(
+        scene="bubble_tea",
+        display_name="手搖飲",
+        common_items=[
+            "無糖綠茶",
+            "無糖烏龍茶",
+            "無糖青茶",
+            "無糖紅茶",
+            "鮮奶茶",
+            "珍珠奶茶",
+            "奶蓋茶",
+            "多多綠茶",
+            "水果茶",
+            "布丁奶茶",
+        ],
+        recommended_patterns=[
+            "無糖綠茶",
+            "無糖烏龍茶",
+            "無糖青茶",
+            "無糖鮮奶茶去珍珠",
+        ],
+        avoid_patterns=[
+            "珍珠奶茶",
+            "奶蓋茶",
+            "多多綠茶",
+            "全糖水果茶",
+            "布丁奶茶",
+        ],
+        customization_rules=[
+            "甜度選無糖或微糖",
+            "去珍珠、椰果、布丁、奶蓋",
+            "大杯改中杯",
+            "鮮奶茶比奶精奶茶好，但仍有熱量",
+        ],
+        risk_notes=[
+            "微糖不等於低熱量。",
+            "珍珠、椰果、布丁、奶蓋都會增加熱量。",
+            "水果茶可能含糖漿，不一定低熱量。",
+        ],
+    ),
+
+    "luwei": RestaurantScenarioTemplate(
+        scene="luwei",
+        display_name="滷味",
+        common_items=[
+            "青菜",
+            "豆腐",
+            "豆干",
+            "海帶",
+            "雞胸肉",
+            "雞腿肉",
+            "貢丸",
+            "甜不辣",
+            "王子麵",
+            "冬粉",
+            "米血",
+        ],
+        recommended_patterns=[
+            "青菜加豆腐加雞胸肉",
+            "豆干加海帶加青菜",
+            "雞肉加青菜少醬",
+            "青菜兩份加豆腐",
+        ],
+        avoid_patterns=[
+            "王子麵",
+            "甜不辣",
+            "貢丸",
+            "米血",
+            "重辣重醬",
+            "大量火鍋料",
+        ],
+        customization_rules=[
+            "少醬",
+            "不要王子麵",
+            "不要甜不辣和大量火鍋料",
+            "青菜至少兩份",
+            "加豆腐或雞肉提高蛋白質",
+        ],
+        risk_notes=[
+            "滷味鈉含量可能偏高。",
+            "火鍋料與加工丸類脂肪、鈉通常較高。",
+            "王子麵會大幅增加精緻澱粉與熱量。",
+        ],
+    ),
+
+    "hotpot": RestaurantScenarioTemplate(
+        scene="hotpot",
+        display_name="火鍋",
+        common_items=[
+            "牛肉鍋",
+            "豬肉鍋",
+            "雞肉鍋",
+            "海鮮鍋",
+            "豆腐",
+            "青菜",
+            "冬粉",
+            "白飯",
+            "王子麵",
+            "火鍋料",
+            "沙茶醬",
+        ],
+        recommended_patterns=[
+            "雞肉鍋加青菜不喝湯",
+            "海鮮鍋加豆腐加青菜",
+            "牛肉鍋飯半碗少沙茶",
+            "青菜豆腐加肉片",
+        ],
+        avoid_patterns=[
+            "麻辣湯底喝湯",
+            "王子麵",
+            "大量火鍋料",
+            "沙茶醬大量",
+            "白飯加冬粉",
+        ],
+        customization_rules=[
+            "少喝湯",
+            "醬料少沙茶，改蔥蒜醬油少量",
+            "王子麵改青菜或豆腐",
+            "主食飯半碗或不加冬粉",
+            "火鍋料減量，優先選原型肉、豆腐、青菜",
+        ],
+        risk_notes=[
+            "火鍋湯底鈉含量高。",
+            "沙茶醬脂肪與熱量高。",
+            "王子麵、冬粉、白飯同時出現時，碳水容易超量。",
+        ],
+    ),
+
+    "noodle_shop": RestaurantScenarioTemplate(
+        scene="noodle_shop",
+        display_name="麵店",
+        common_items=[
+            "乾麵",
+            "湯麵",
+            "牛肉麵",
+            "餛飩麵",
+            "陽春麵",
+            "滷肉飯",
+            "燙青菜",
+            "滷蛋",
+            "豆干",
+            "海帶",
+        ],
+        recommended_patterns=[
+            "湯麵加滷蛋加燙青菜",
+            "牛肉麵少喝湯",
+            "乾麵小碗加滷蛋加青菜",
+            "餛飩湯加青菜",
+        ],
+        avoid_patterns=[
+            "大碗乾麵",
+            "滷肉飯加乾麵",
+            "重油辣乾麵",
+            "喝完整碗牛肉麵湯",
+        ],
+        customization_rules=[
+            "麵量小碗",
+            "加滷蛋或豆干補蛋白質",
+            "加燙青菜",
+            "少喝湯",
+            "避免麵加飯的雙主食組合",
+        ],
+        risk_notes=[
+            "麵店常見問題是碳水高、蛋白質不足。",
+            "湯品鈉含量可能偏高。",
+            "乾麵油脂可能比湯麵更高。",
+        ],
+    ),
+}
+
+
+def get_scenario_template(scene: str) -> RestaurantScenarioTemplate:
+    try:
+        return SCENARIOS[scene]
+    except KeyError as exc:
+        supported = ", ".join(sorted(SCENARIOS))
+        raise ValueError(f"Unsupported scene: {scene}. Supported scenes: {supported}") from exc
+
+
+def list_supported_scenes() -> list[str]:
+    return sorted(SCENARIOS)

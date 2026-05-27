@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.9.0 - 2026-05-27
+
+**Phase 9 — 外食情境推薦引擎（基礎）**
+
+新增 6 個模組，建立外食場景推薦核心架構：
+
+- `scripts/dining_models.py` — 資料模型：
+  - `MenuItem`：單一菜單品項（含 source、confidence、營養預估值、標籤）
+  - `RestaurantScenarioTemplate`：店家類型模板（推薦/避免/修改規則/風險提醒）
+  - `ScoredMenuItem`：評分後的品項（分數、理由、修改建議）
+  - `DiningRecommendation`：推薦結果封裝
+
+- `scripts/restaurant_scenarios.py` — 7 種店家類型：
+  - `breakfast_shop`、`bento_shop`、`convenience_store`、`bubble_tea`、
+    `luwei`、`hotpot`、`noodle_shop`
+  - 內建品項、推薦組合、避免組合、修改建議、風險提醒
+
+- `scripts/menu_nutrition_estimator.py` — Rule-based 營養估算：
+  - 涵蓋早餐、便當、便利商店、手搖飲、滷味、火鍋、麵店主流品項
+  - 自動推斷標籤（`high_protein`、`fried`、`sugary_drink`、`low_calorie` 等）
+  - 支援份量關鍵字（「飯半碗」、「少醬」、「加蛋」）自動調整熱量
+
+- `scripts/menu_item_scoring.py` — 評分引擎：
+  - 根據：今日剩餘熱量、蛋白質缺口、減脂/維持/增肌目標、低 GI 需求
+  - 計算 0~100 分，產生理由與修改建議
+
+- `scripts/dining_context_engine.py` — 推薦主流程：
+  - `recommend_without_menu()`：無菜單時以店家類型模板 fallback
+  - `recommend_from_menu_items()`：有實際品項時評分排序
+  - 預留介面供日後串接 `menu_image_analyzer` 與 `brand_menu_repository`
+
+- `scripts/dining_advisor.py` — CLI 工具
+
+附帶 Bug fix：
+
+- `menu_item_scoring.py`：修正 `over` 變數範圍錯誤（`UnboundLocalError`）
+
+---
+
 ## 0.8.0 - 2026-05-27
 
 Phase 8 Feature 1 — `can_i_eat.py` 加入替代份量計算
