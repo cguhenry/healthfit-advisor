@@ -41,8 +41,8 @@ class DBManager:
     DEFAULT_DB_PATH = DEFAULT_DB_PATH
     DEFAULT_SCHEMA_PATH = DEFAULT_SCHEMA_PATH
 
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH, *, fast_mode: bool = False) -> None:
-        self.db_path = db_path.expanduser()
+    def __init__(self, db_path: str | Path = DEFAULT_DB_PATH, *, fast_mode: bool = False) -> None:
+        self.db_path = Path(db_path).expanduser()
         self.fast_mode = fast_mode
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 

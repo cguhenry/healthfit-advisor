@@ -145,8 +145,11 @@ def recommend_from_menu_items(
 
     scored.sort(key=lambda x: x.score, reverse=True)
 
+    source_mode = items[0].source if items else "user_text"
+
     recommended = scored[:top_n]
-    avoid = list(reversed(scored[-top_n:]))
+    remaining = scored[top_n:]
+    avoid = sorted(remaining, key=lambda x: x.score)[:top_n]
 
     modifications: list[str] = []
     warnings: list[str] = []
@@ -161,7 +164,7 @@ def recommend_from_menu_items(
             pass
 
     return DiningRecommendation(
-        source_mode="menu_image",
+        source_mode=source_mode,
         recommended=recommended,
         avoid=avoid,
         general_modifications=modifications,

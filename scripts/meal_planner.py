@@ -751,8 +751,6 @@ def generate_optimized_meal_plan(
             return validation_result
         prompt = _build_correction_prompt(prompt, validation_result.get("violations", []))
 
-    validation_result["summary"]["goal_conflicts"] = [c.to_dict() for c in conflicts]
-
     # Build conflict_text for fallback too
     if conflicts:
         conflict_text = "\n".join(
