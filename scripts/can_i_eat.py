@@ -298,7 +298,8 @@ def check_can_i_eat(
     if results:
         best: SearchResult = results[0]
         ni = best.item
-        grams = _default_serving_for(food_query) * quantity
+        serving_g = float(ni.serving_size_g or 0) or _default_serving_for(food_query)
+        grams = serving_g * quantity
         # ni.calories_for / protein_for already use the scaled grams
         food_cal = ni.calories_for(grams)
         food_prot = ni.protein_for(grams)
