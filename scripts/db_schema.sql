@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS food_logs (
     fiber_g NUMERIC,
     sodium_mg NUMERIC,
     ai_confidence NUMERIC,
-    note TEXT
+    note TEXT,
+    quality_label TEXT
 );
 
 CREATE TABLE IF NOT EXISTS daily_summaries (

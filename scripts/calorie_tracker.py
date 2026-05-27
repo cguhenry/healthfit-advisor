@@ -28,6 +28,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from db_manager import DBManager
+from data_quality import quick_quality_label_from_source  # noqa: PLC0415
 
 PHASE3_TOP_LEVEL_ALIASES = {
     "foods": ("foods", "consumed_foods"),
@@ -194,18 +195,23 @@ def log_meal_analysis(
         estimated_g = float(food.get("estimated_g") or 0)
         food_name = str(food.get("name") or "未知食物")
 
+        food_db_source = food.get("food_db_source", "AI_EST")
+        quality_label = quick_quality_label_from_source(food_db_source, conf)
+
         db.execute(
             """INSERT INTO food_logs (
                 log_id, user_id, meal_type, log_datetime, food_name,
                 quantity_g, calories, protein_g, carb_g, fat_g,
-                fiber_g, sodium_mg, ai_confidence, food_db_source, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                fiber_g, sodium_mg, ai_confidence, food_db_source, note,
+                quality_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 log_id, user_id, meal_type, ts, food_name,
                 estimated_g, calories, protein_g, carb_g, fat_g,
                 fiber_g, sodium_mg, conf,
-                food.get("food_db_source", "AI_EST"),
+                food_db_source,
                 note,
+                quality_label,
             ),
         )
         inserted.append(log_id)
@@ -213,12 +219,15 @@ def log_meal_analysis(
     # Optional: insert a meal-total summary row for aggregation convenience
     if total_nutrition:
         log_id = str(uuid.uuid4())
+        total_conf = float(total_nutrition.get("confidence") or 0)
+        total_ql = quick_quality_label_from_source("AI_EST", total_conf)
         db.execute(
             """INSERT INTO food_logs (
                 log_id, user_id, meal_type, log_datetime, food_name,
                 quantity_g, calories, protein_g, carb_g, fat_g,
-                fiber_g, sodium_mg, ai_confidence, food_db_source, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                fiber_g, sodium_mg, ai_confidence, food_db_source, note,
+                quality_label
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 log_id, user_id, meal_type, ts, "___MEAL_TOTAL___",
                 0,
@@ -228,9 +237,10 @@ def log_meal_analysis(
                 float(total_nutrition.get("fat_g") or 0),
                 float(total_nutrition.get("fiber_g") or 0),
                 float(total_nutrition.get("sodium_mg") or 0),
-                float(total_nutrition.get("confidence") or 0),
+                total_conf,
                 "AI_EST",
                 note,
+                total_ql,
             ),
         )
         inserted.append(log_id)

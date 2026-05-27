@@ -483,7 +483,7 @@ def get_food_fingerprint(
 
             if final >= 65:
                 favorites.append(name)
-            elif final <= 40 and strength >= MIN_COUNT_FOR_PROBLEMATIC:
+            elif final <= 40 and total >= MIN_COUNT_FOR_PROBLEMATIC:
                 problematic.append(name)
             else:
                 exploratory.append(name)

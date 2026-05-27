@@ -28,7 +28,7 @@ from calorie_tracker import get_calorie_progress
 from db_manager import DBManager
 from food_db_lookup import FoodDBLookup, SearchResult
 from food_preference_engine import get_food_fingerprint
-from data_quality import estimate_nutrition_quality, _infer_match_method, MatchMethod  # noqa: PLC0415
+from data_quality import estimate_nutrition_quality, MatchMethod  # noqa: PLC0415
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 
@@ -398,7 +398,7 @@ def check_can_i_eat(
         quality = estimate_nutrition_quality(
             source=ni.source,
             match_score=confidence,
-            match_method=_infer_match_method(confidence),
+            match_method="auto",
             has_required_macros=all([
                 ni.calories_100g is not None,
                 ni.protein_100g is not None,

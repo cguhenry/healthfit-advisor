@@ -695,6 +695,9 @@ def generate_optimized_meal_plan(
     from food_preference_engine import get_preference_prompt_context  # noqa: PLC0415
     from goal_conflict_engine import analyze_goal_conflicts  # noqa: PLC0415
 
+    # Bug fix 1: guard against None before `in` checks
+    dietary_restrictions = dietary_restrictions or []
+
     conflicts = analyze_goal_conflicts(
         daily_calories=daily_calories,
         protein_target_g=int(macro_targets.get("protein_g", 0)) or None,

@@ -14,7 +14,7 @@ from typing import Literal, Optional
 
 
 SourceType = Literal["TW_FDA", "USDA", "GI_LLM", "AI_EST", "USER_INPUT", "UNKNOWN"]
-MatchMethod = Literal["exact", "alias", "fuzzy", "llm_estimate", "manual", "unknown"]
+MatchMethod = Literal["exact", "alias", "fuzzy", "llm_estimate", "manual", "unknown", "auto"]
 
 
 @dataclass
@@ -75,6 +75,19 @@ def estimate_nutrition_quality(
     else:
         source_conf = 0.50
 
+    # ── Auto-resolve match_method from match_score if requested ────────
+    if match_method == "auto":
+        if match_score is None:
+            match_method = "unknown"
+        elif match_score >= 0.95:
+            match_method = "exact"
+        elif match_score >= 0.80:
+            match_method = "alias"
+        elif match_score >= 0.50:
+            match_method = "fuzzy"
+        else:
+            match_method = "unknown"
+
     # ── Adjustments ────────────────────────────────────────────────────────
     method_adj = {
         "exact": 0.0,
@@ -128,3 +141,41 @@ def estimate_nutrition_quality(
         quality_label=label,
         quality_notes="；".join(notes) if notes else "資料品質正常",
     )
+
+
+def quick_quality_label_from_source(
+    source: str,
+    confidence: float = 1.0,
+) -> str:
+    """Fast quality label for food_logs when full NutritionQuality is not needed.
+
+    Used by calorie_tracker.log_meal_analysis() / log_meal_manual() to stamp
+    each written row with a quality label without importing data_quality in
+    hot paths.
+
+    Returns one of: high | medium | low | very_low
+    """
+    src = source.upper() if source else "UNKNOWN"
+    if src == "TW_FDA":
+        conf = 0.95
+    elif src == "USDA":
+        conf = 0.90
+    elif src == "GI_LLM":
+        conf = 0.55
+    elif src == "AI_EST":
+        conf = 0.35
+    elif src == "USER_INPUT":
+        conf = 0.65
+    else:
+        conf = 0.50
+
+    # Blend with per-row confidence when available
+    effective = conf * 0.6 + (confidence or 0) * 0.4
+
+    if effective >= 0.85:
+        return "high"
+    if effective >= 0.65:
+        return "medium"
+    if effective >= 0.45:
+        return "low"
+    return "very_low"
