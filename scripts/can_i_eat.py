@@ -28,6 +28,7 @@ from calorie_tracker import get_calorie_progress
 from db_manager import DBManager
 from food_db_lookup import FoodDBLookup, SearchResult
 from food_preference_engine import get_food_fingerprint
+from data_quality import estimate_nutrition_quality, _infer_match_method, MatchMethod  # noqa: PLC0415
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 
@@ -125,6 +126,11 @@ class CanIEatResult:
     source_type: Literal["db", "heuristic"] = "db"  # "db" = found in food DB, "heuristic" = estimated
     low_confidence: bool = False  # True when DB match confidence < 0.5
     portion_adjustment: PortionAdjustment | None = None  # suggested downscale when over budget
+    # Phase 8 Feature 4: data quality fields
+    nutrition_confidence: float = 0.0  # overall nutrition data quality 0–1
+    match_method: str = "unknown"       # how food was matched
+    quality_label: str = "unknown"      # high / medium / low / very_low
+    quality_notes: str = ""            # human-readable notes
 
     # Backward-compat alias so legacy code / tests that access _is_estimate still work
     @property
@@ -388,6 +394,19 @@ def check_can_i_eat(
         matched_name = ni.food_name
         source_type = "db"
         low_confidence = confidence < 0.5
+        # Phase 8 Feature 4: compute nutrition quality
+        quality = estimate_nutrition_quality(
+            source=ni.source,
+            match_score=confidence,
+            match_method=_infer_match_method(confidence),
+            has_required_macros=all([
+                ni.calories_100g is not None,
+                ni.protein_100g is not None,
+                ni.carb_100g is not None,
+                ni.fat_100g is not None,
+            ]),
+            is_ai_estimate=False,
+        )
     else:
         # No match in DB — use heuristic defaults
         serving_g = _default_serving_for(food_query)
@@ -399,6 +418,14 @@ def check_can_i_eat(
         matched_name = f"{food_query}（估算）"
         source_type = "heuristic"
         low_confidence = True
+        # Phase 8 Feature 4: heuristic = very low quality
+        quality = estimate_nutrition_quality(
+            source="AI_EST",
+            match_score=None,
+            match_method="llm_estimate",
+            has_required_macros=False,
+            is_ai_estimate=True,
+        )
 
     protein_gap_after = protein_gap_before - food_prot  # after eating this food
 
@@ -469,6 +496,10 @@ def check_can_i_eat(
         source_type=source_type,
         low_confidence=low_confidence,
         portion_adjustment=portion_adjustment,
+        nutrition_confidence=quality.nutrition_confidence,
+        match_method=quality.match_method,
+        quality_label=quality.quality_label,
+        quality_notes=quality.quality_notes,
     )
 
 
@@ -486,6 +517,17 @@ def format_result(result: CanIEatResult) -> str:
         f"今日剩餘：{result.calories_remaining:+.0f} kcal（目標 {result.daily_target} kcal）",
         "",
     ]
+
+    # Phase 8 Feature 4: data quality line
+    if result.quality_label != "unknown":
+        conf_label = {
+            "high": "✅ 高",
+            "medium": "⚠️ 中",
+            "low": "⚠️ 低",
+            "very_low": "❌ 極低",
+        }.get(result.quality_label, result.quality_label)
+        lines.append(f"📊 資料可信度：{conf_label}（confidence={result.nutrition_confidence:.2f}，{result.quality_notes}）")
+        lines.append("")
 
     lines.append(result.advice)
     lines.append("")

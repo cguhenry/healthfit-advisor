@@ -23,6 +23,20 @@ WEIGHT_PLAN_COLUMNS = {
     "requires_professional_review": "BOOLEAN DEFAULT FALSE",
 }
 
+# Phase 8 Feature 4: extra columns for data-quality tracking
+EXTRA_TABLE_COLUMNS: dict[str, dict[str, str]] = {
+    "food_nutrition_cache": {
+        "source_confidence": "REAL DEFAULT 0.8",
+        "nutrition_confidence": "REAL DEFAULT 0.8",
+        "match_method": "TEXT DEFAULT 'unknown'",
+        "quality_notes": "TEXT",
+    },
+    "food_logs": {
+        "nutrition_confidence": "REAL",
+        "match_method": "TEXT",
+    },
+}
+
 class DBManager:
     DEFAULT_DB_PATH = DEFAULT_DB_PATH
     DEFAULT_SCHEMA_PATH = DEFAULT_SCHEMA_PATH
@@ -48,6 +62,14 @@ class DBManager:
                 conn.executescript(sql)
                 self._migrate(conn)
 
+    @staticmethod
+    def _ensure_columns(conn: sqlite3.Connection, table: str, columns: dict[str, str]) -> None:
+        """Add missing columns to table without altering others."""
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        for column_name, column_type in columns.items():
+            if column_name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {column_type}")
+
     def _migrate(self, conn: sqlite3.Connection) -> None:
         conn.execute(
             """
@@ -64,6 +86,11 @@ class DBManager:
         for column_name, column_type in WEIGHT_PLAN_COLUMNS.items():
             if column_name not in existing_columns:
                 conn.execute(f"ALTER TABLE weight_plans ADD COLUMN {column_name} {column_type}")
+
+        # Phase 8 Feature 4: extra data-quality columns
+        for table, columns in EXTRA_TABLE_COLUMNS.items():
+            self._ensure_columns(conn, table, columns)
+
         conn.execute(
             """
             INSERT INTO schema_meta (key, value)
