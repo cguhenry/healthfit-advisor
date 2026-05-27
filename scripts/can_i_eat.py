@@ -423,7 +423,7 @@ def format_result(result: CanIEatResult) -> str:
             lines.append(f"💡 建議：\n{result.adjusted_meal_suggestion}")
             lines.append("")
 
-    if result.protein_gap_after > 5:
+    if abs(result.protein_gap_after) > 5:
         gap_label = "還差" if result.protein_gap_after > 0 else "已超標"
         lines.append(f"🥩 吃完後蛋白質{gap_label} {abs(result.protein_gap_after):.0f}g")
 
