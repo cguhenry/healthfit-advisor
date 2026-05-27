@@ -36,6 +36,10 @@ Enhancement — DBManager transaction and batch support
 
 ---
 
+## 0.7.8 - 2026-05-27
+
+- **meal_planner.py**: `_get_recent_food_preferences()`、`_get_low_score_patterns()` 移除 SQLite `DATE('now', ?)` 改為參數化 `DATE(?, ?)` 並新增 `today` 參數，行為與 food_preference_engine.py 一致
+
 ## 0.7.7 - 2026-05-26
 
 Bug fixes batch — preference engine, PDF export, can-i-eat, shopping push

@@ -274,7 +274,9 @@ def _get_recent_food_preferences(
     *,
     lookback_days: int = 14,
     limit: int = 12,
+    today: str | None = None,
 ) -> list[dict[str, Any]]:
+    today = today or date.today().isoformat()
     rows = db.fetchall(
         """
         SELECT food_name, COUNT(*) AS freq
@@ -282,12 +284,12 @@ def _get_recent_food_preferences(
          WHERE user_id = ?
            AND food_name IS NOT NULL
            AND food_name != '___MEAL_TOTAL___'
-           AND DATE(log_datetime) >= DATE('now', ?)
+           AND DATE(log_datetime) >= DATE(?, ?)
          GROUP BY food_name
          ORDER BY freq DESC, food_name ASC
          LIMIT ?
         """,
-        (user_id, f"-{lookback_days} day", limit),
+        (user_id, today, f"-{lookback_days} day", limit),
     )
     return [{"food_name": row["food_name"], "count": int(row["freq"])} for row in rows]
 
@@ -299,7 +301,9 @@ def _get_low_score_patterns(
     lookback_days: int = 14,
     score_threshold: int = 60,
     limit: int = 8,
+    today: str | None = None,
 ) -> list[dict[str, Any]]:
+    today = today or date.today().isoformat()
     rows = db.fetchall(
         """
         SELECT fl.food_name, COUNT(*) AS freq
@@ -310,13 +314,13 @@ def _get_low_score_patterns(
          WHERE ds.user_id = ?
            AND ds.daily_score IS NOT NULL
            AND ds.daily_score < ?
-           AND ds.summary_date >= DATE('now', ?)
+           AND ds.summary_date >= DATE(?, ?)
            AND fl.food_name != '___MEAL_TOTAL___'
          GROUP BY fl.food_name
          ORDER BY freq DESC, fl.food_name ASC
          LIMIT ?
         """,
-        (user_id, score_threshold, f"-{lookback_days} day", limit),
+        (user_id, score_threshold, today, f"-{lookback_days} day", limit),
     )
     return [{"food_name": row["food_name"], "count": int(row["freq"])} for row in rows]
 
