@@ -1,4 +1,23 @@
 # Changelog
+## 0.7.10 - 2026-05-27
+
+Bug 22 — off-by-one in `update_preference_after_log()` rolling average
+
+**Root cause**: Phase 1 increments `total_count` via ON CONFLICT UPDATE, then
+Phase 2 re-reads that same row — the `total_count` it fetches is already N+1
+(the post-increment value). The formula used `old_count` as both the multiplier
+and added +1 in the denominator, effectively skipping one observation:
+
+    # wrong: old_count is already N+1 after the ON CONFLICT update
+    new_avg = (old_avg * old_count + new_score) / (old_count + 1)
+    # = (avg*N + new) / (N+2)  <- off by one
+
+**Fix**: Capture `previous_count` (the count *before* the upsert) and use it as
+the multiplier; the post-increment `old_count` only appears as the denominator.
+
+    new_avg = (old_avg * previous_count + new_score) / old_count
+    # = (avg*N + new) / (N+1)  ✓
+
 
 ## 0.7.9 - 2026-05-26
 
