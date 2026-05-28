@@ -12,6 +12,16 @@
 
 - **P0-4** `dining_advisor.py`：`--remaining-calories`/`--protein-gap` 預設值改為 `None`，可正確覆寫 DB 值；`--protein-gap or 0` 處理 None 輸入
 
+**P1 Bug Fixes**
+
+- **P1-1** `requirements.txt`：新增 `requests>=2.31.0`（`recommendation_explainer.py` 已依賴）
+
+- **P1-2** `can_i_eat.py` `format_result()`：`alternatives` 清單中結尾為 `：` 的項目視為子標題，不套用 `• ` 前綴，解決「🔄 替代選項」區段雙 bullet 問題（`• • 無糖綠茶...`）
+
+- **P1-3** `can_i_eat.py` `check_can_i_eat()`：DB lookup 失敗時，先嘗試 `estimate_menu_item_nutrition()` 估算，再 fallback 至 `2.5kcal/g`。珍珠奶茶（500ml）從錯誤的 ~1250 kcal 修正為正確的 ~550 kcal
+
+- **P1-4** `dining_advisor.py` `format_recommendation()`：`avoid` 清單為空時不印 `⚠️ 較不建議：` header
+
 ## 0.9.1 - 2026-05-27
 
 **Bug fix + Regression tests**
