@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.1 - 2026-05-27
+
+**Bug fix + Regression tests**
+
+Bug fixes:
+
+- **Bug 10** `menu_image_analyzer.py`：新增 `_strip_json_fence()`，支援 LLM 回傳的 markdown code-fence JSON（```json...```）。處理解析失敗時，會先移除 ``` 包裝再 parse。三種格式皆支援：多行標準格式、無 closing fence、純 JSON（無 fence）
+
+- **Bug 11** `user_restaurant_repository.py`：所有 CRUD 函式（`upsert_user_restaurant_profile`、`upsert_user_restaurant_item`、`load_user_restaurant_profile`、`load_user_restaurant_items`）開頭皆加入 `db.initialize()`，不再依賴呼叫端提前初始化 DB
+
+New test file:
+
+- `tests/test_dining_fixes.py`：5 個迴歸測試，覆蓋 code-fence 解析、repository 自我初始化、推薦結果不重疊、已知食物營養不誤判為不足、str db_path 接受度
+
 ## 0.9.0 - 2026-05-27
 
 **Phase 9 — 外食情境推薦引擎（基礎）**
