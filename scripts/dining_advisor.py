@@ -132,7 +132,12 @@ def main() -> int:
     args = parser.parse_args()
 
     # ── Resolve user context (DB auto-fill vs manual) ──────────────────────
-    if args.user_id:
+    # Manual context takes priority; allow --user-id to be used for restaurant
+    # profiles even when no active plan exists (as long as calories are manual).
+    manual_calories = args.remaining_calories is not None
+
+    if args.user_id and not manual_calories:
+        # Need DB context to supply calories
         try:
             ctx = load_dining_user_context(
                 db_path=str(Path(args.db_path).expanduser()),
@@ -141,20 +146,12 @@ def main() -> int:
             )
         except RuntimeError as exc:
             parser.error(str(exc))
-        calories_remaining = (
-            args.remaining_calories
-            if args.remaining_calories is not None
-            else ctx.calories_remaining
-        )
+        calories_remaining = ctx.calories_remaining
         protein_gap_g = (
-            args.protein_gap
-            if args.protein_gap is not None
-            else ctx.protein_gap_g
+            args.protein_gap if args.protein_gap is not None else ctx.protein_gap_g
         )
         goal_type = (
-            args.goal_type
-            if args.goal_type is not None
-            else ctx.goal_type
+            args.goal_type if args.goal_type is not None else ctx.goal_type
         )
         require_low_gi = ctx.require_low_gi or args.low_gi
         print(
@@ -165,7 +162,53 @@ def main() -> int:
             f"低GI={require_low_gi}",
             file=sys.stderr,
         )
+    elif args.user_id and manual_calories:
+        # Manual calories override; try to load DB context for protein/goal.
+        # If user has no active plan, ctx will be None and we fall back gracefully.
+        ctx = None
+        try:
+            ctx = load_dining_user_context(
+                db_path=str(Path(args.db_path).expanduser()),
+                user_id=args.user_id,
+                target_date=args.date,
+            )
+        except RuntimeError:
+            pass  # no active plan — use manual values only
+
+        calories_remaining = args.remaining_calories
+        protein_gap_g = (
+            args.protein_gap
+            if args.protein_gap is not None
+            else (ctx.protein_gap_g if ctx else 0)
+        )
+        goal_type = (
+            args.goal_type
+            if args.goal_type is not None
+            else (ctx.goal_type if ctx else "loss")
+        )
+        require_low_gi = (
+            (ctx.require_low_gi if ctx else False) or args.low_gi
+        )
+        if ctx is None:
+            print(
+                f"📊 手動熱量模式（無 active plan）："
+                f"熱量 {calories_remaining:+.0f} kcal（手動）、"
+                f"蛋白質 {protein_gap_g:+.0f}g、"
+                f"目標 {goal_type}、"
+                f"低GI={require_low_gi}",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"📊 混合模式（手動熱量 {calories_remaining:+.0f} kcal + DB 其餘）："
+                f"熱量 {calories_remaining:+.0f} kcal（手動）、"
+                f"蛋白質 {protein_gap_g:+.0f}g、"
+                f"目標 {goal_type}、"
+                f"低GI={require_low_gi}",
+                file=sys.stderr,
+            )
     else:
+        # No user_id — fully manual mode
         if args.remaining_calories is None:
             parser.error(
                 "--user-id is required to auto-fill from DB; "
@@ -184,10 +227,19 @@ def main() -> int:
 
         json_path = Path(args.menu_json).expanduser()
         raw = json_path.read_text(encoding="utf-8")
-        _, items = parse_menu_items_from_llm_json(raw)
+        parsed_scene, items = parse_menu_items_from_llm_json(raw)
+
+        # Allow JSON's restaurant_type to override CLI scene
+        if parsed_scene is not None and parsed_scene != args.scene:
+            print(
+                f'⚠️ JSON restaurant_type "{parsed_scene}" 覆寫控件 scene "{args.scene}"',
+                file=sys.stderr,
+            )
+        effective_scene = parsed_scene or args.scene
+
         result = recommend_from_menu_items(
             items=items,
-            scene=args.scene,
+            scene=effective_scene,
             calories_remaining=calories_remaining,
             protein_gap_g=protein_gap_g,
             goal_type=goal_type,
@@ -196,7 +248,7 @@ def main() -> int:
         )
         result.summary = f"已根據 JSON 檔案「{args.menu_json}」推薦。"
         print(
-            f"📋 從 JSON 載入 {len(items)} 項品項",
+            f"📋 從 JSON 載入 {len(items)} 項品項（scene={effective_scene}）",
             file=sys.stderr,
         )
 

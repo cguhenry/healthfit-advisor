@@ -264,15 +264,31 @@ class FoodDBLookup:
         source_filter = f"AND source IN ({','.join(repr(s) for s in sources)})"
         cat_filter = f"AND category = {repr(category)}" if category else ""
 
+        # Expand alias for additional candidate fetch
+        expanded_q = self._expand_alias(query)
+        query_terms = [query]
+        if expanded_q != query:
+            query_terms.append(expanded_q)
+
+        # Build multi-term WHERE clause
+        conditions = []
+        params: list[str] = []
+        for term in query_terms:
+            like = f"%{term}%"
+            conditions.append("(food_name LIKE ? OR food_name_en LIKE ? OR category LIKE ?)")
+            params.extend([like, like, like])
+
+        where_match = " OR ".join(conditions)
+
         # Fetch candidate rows — SQLite doesn't have great fulltext search
         # so we pull candidates broadly then score in Python
         rows = self._db.fetchall(
             f"""SELECT * FROM food_nutrition_cache
-                WHERE (food_name LIKE ? OR food_name_en LIKE ? OR category LIKE ?)
+                WHERE ({where_match})
                 {source_filter} {cat_filter}
                 ORDER BY food_name
                 LIMIT 500""",
-            (f"%{query}%", f"%{query}%", f"%{query}%"),
+            params,
         )
 
         scored: list[tuple[float, NutritionInfo, str]] = []

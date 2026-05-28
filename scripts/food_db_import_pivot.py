@@ -252,39 +252,76 @@ def _resolve_usda_dir(usda_dir: str | _Path | None = None) -> _Path:
     return path
 
 
-def _validate_usda_files(usda_dir: _Path) -> tuple[_Path, _Path, _Path]:
+def _validate_usda_files(usda_dir: _Path) -> tuple[_Path, _Path, _Path, _Path]:
     food_csv          = usda_dir / "food.csv"
     food_nutrient_csv = usda_dir / "food_nutrient.csv"
     nutrient_csv      = usda_dir / "nutrient.csv"
+    foundation_csv    = usda_dir / "foundation_food.csv"
 
-    missing = [str(p) for p in [food_csv, food_nutrient_csv, nutrient_csv] if not p.exists()]
+    missing = [str(p) for p in [food_csv, food_nutrient_csv, nutrient_csv, foundation_csv] if not p.exists()]
 
     if missing:
         raise FileNotFoundError(
             "USDA Foundation Foods CSV files are missing:\n"
             + "\n".join(f"- {x}" for x in missing)
-            + "\nExpected files: food.csv, food_nutrient.csv, nutrient.csv"
+            + "\nExpected files: food.csv, food_nutrient.csv, nutrient.csv, foundation_food.csv"
         )
 
-    return food_csv, food_nutrient_csv, nutrient_csv
+    return food_csv, food_nutrient_csv, nutrient_csv, foundation_csv
 
 
-def _load_usda_foods(food_csv: _Path) -> dict[int, dict[str, Any]]:
+def _load_usda_foundation_ids(foundation_csv: _Path) -> set[int]:
+    """Load fdc_ids listed in foundation_food.csv (authoritative list of Foundation Foods)."""
+    ids: set[int] = set()
+    with foundation_csv.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            fdc_id = _to_int(row.get("fdc_id"))
+            if fdc_id is not None:
+                ids.add(fdc_id)
+    return ids
+
+
+def _load_usda_foods(
+    food_csv: _Path,
+    foundation_ids: set[int] | None = None,
+) -> dict[int, dict[str, Any]]:
+    """
+    Load food.csv rows.
+
+    If foundation_ids is provided, only yield rows whose fdc_id appears in
+    that set (strict Foundation Food filtering via foundation_food.csv).
+    Otherwise fall back to data_type == "foundation_food" for backward
+    compatibility with partial downloads that lack foundation_food.csv.
+    """
+    foundation_ids = foundation_ids or set()
+
     foods: dict[int, dict[str, Any]] = {}
-
     with food_csv.open("r", encoding="utf-8-sig", newline="") as f:
         reader = _csv.DictReader(f)
         for row in reader:
             fdc_id = _to_int(row.get("fdc_id"))
             if fdc_id is None:
                 continue
+
+            data_type = str(row.get("data_type") or "").lower()
+
+            if foundation_ids:
+                # Strict: only accept fdc_ids listed in foundation_food.csv
+                if fdc_id not in foundation_ids:
+                    continue
+            else:
+                # Fallback for partial downloads
+                if data_type != "foundation_food":
+                    continue
+
             description = (row.get("description") or "").strip()
             if not description:
                 continue
 
             foods[fdc_id] = {
                 "fdc_id":           fdc_id,
-                "description":      description,
+                "description":       description,
                 "data_type":        row.get("data_type"),
                 "food_category_id": row.get("food_category_id"),
                 "publication_date": row.get("publication_date"),
@@ -351,11 +388,16 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
     usda_path = _resolve_usda_dir(usda_dir)
     food_csv, food_nutrient_csv, nutrient_csv = _validate_usda_files(usda_path)
 
-    print(f"Loading USDA foods from {food_csv}")
-    foods = _load_usda_foods(food_csv)
+    print(f"Validating USDA files in {usda_path}")
+    food_csv, food_nutrient_csv, nutrient_csv, foundation_csv = _validate_usda_files(usda_path)
 
-    print(f"Loading USDA nutrients from {nutrient_csv}")
-    _load_usda_nutrients(nutrient_csv)  # consumed for debug/logging only
+    print(f"Loading USDA foundation food IDs from {foundation_csv}")
+    foundation_ids = _load_usda_foundation_ids(foundation_csv)
+    print(f"   Found {len(foundation_ids)} Foundation Food IDs")
+
+    print(f"Loading USDA foods from {food_csv}")
+    foods = _load_usda_foods(food_csv, foundation_ids)
+    print(f"   Filtered to {len(foods)} foundation foods")
 
     print(f"Pivoting USDA food nutrients from {food_nutrient_csv}")
     pivot = _pivot_usda_nutrients(food_nutrient_csv, set(foods.keys()))

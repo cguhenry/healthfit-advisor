@@ -437,11 +437,14 @@ def check_can_i_eat(
             source_type = "heuristic"
             low_confidence = True
             quality = estimate_nutrition_quality(
-                source="AI_EST",
+                source="RULE_BASED_EST",
                 match_score=None,
-                match_method="llm_estimate",
-                has_required_macros=False,
-                is_ai_estimate=True,
+                match_method="manual",
+                has_required_macros=(
+                    estimated.estimated_calories is not None
+                    and estimated.estimated_protein_g is not None
+                ),
+                is_ai_estimate=False,
             )
         else:
             # Rough calorie-per-100g estimate for unknown food
@@ -452,11 +455,11 @@ def check_can_i_eat(
             source_type = "heuristic"
             low_confidence = True
             quality = estimate_nutrition_quality(
-                source="AI_EST",
+                source="RULE_BASED_EST",
                 match_score=None,
-                match_method="llm_estimate",
+                match_method="manual",
                 has_required_macros=False,
-                is_ai_estimate=True,
+                is_ai_estimate=False,
             )
 
     protein_gap_after = protein_gap_before - food_prot  # after eating this food
@@ -573,11 +576,17 @@ def check_can_i_eat(
 
 def format_result(result: CanIEatResult) -> str:
     """Render a CanIEatResult as a human-readable string."""
+    # Helper: show number or 未知 when value is 0 (indicates missing data)
+    def _fmt_cal(v: float) -> str:
+        return f"{v:.0f} kcal" if v != 0.0 else "熱量未知"
+    def _fmt_prot(v: float) -> str:
+        return f"{v:.0f} g" if v != 0.0 else "蛋白質未知"
+
     lines = [
         f"🍜 查詢結果：{result.matched_food_display}",
         "",
-        f"熱量估算：約 {result.estimated_calories:.0f} kcal",
-        f"蛋白質：約 {result.estimated_protein_g:.0f} g",
+        f"熱量估算：約 {_fmt_cal(result.estimated_calories)}",
+        f"蛋白質：約 {_fmt_prot(result.estimated_protein_g)}",
         f"今日剩餘：{result.calories_remaining:+.0f} kcal（目標 {result.daily_target} kcal）",
         "",
     ]

@@ -13,7 +13,7 @@ from dataclasses import dataclass, asdict
 from typing import Literal, Optional
 
 
-SourceType = Literal["TW_FDA", "USDA", "GI_LLM", "AI_EST", "USER_INPUT", "UNKNOWN"]
+SourceType = Literal["TW_FDA", "USDA", "GI_LLM", "AI_EST", "USER_INPUT", "RULE_BASED_EST", "UNKNOWN"]
 MatchMethod = Literal["exact", "alias", "fuzzy", "llm_estimate", "manual", "unknown", "auto"]
 
 
@@ -72,6 +72,8 @@ def estimate_nutrition_quality(
         source_conf = 0.35
     elif source_upper == "USER_INPUT":
         source_conf = 0.65
+    elif source_upper == "RULE_BASED_EST":
+        source_conf = 0.55
     else:
         source_conf = 0.50
 
@@ -166,6 +168,8 @@ def quick_quality_label_from_source(
         conf = 0.35
     elif src == "USER_INPUT":
         conf = 0.65
+    elif src == "RULE_BASED_EST":
+        conf = 0.55
     else:
         conf = 0.50
 

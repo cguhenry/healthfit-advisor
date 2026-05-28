@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for food_db_lookup.py — source priority, USDA searchability, etc."""
+"""Tests for food_db_lookup.py — source priority, USDA searchability, alias expansion."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class TestUSDAIntegration(unittest.TestCase):
 
         self.assertTrue(results, "USDA Chicken search should return results")
         self.assertTrue(
-            any(r.item.source == "USDA" for r in results),
+            all(r.item.source == "USDA" for r in results),
             "All returned items should have source='USDA'",
         )
 
@@ -84,7 +84,7 @@ class TestUSDAIntegration(unittest.TestCase):
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             ("USDA", "fdc_99", "Test food", 100, 10, 5, 2),
         )
-        bad = self.db.fetchone(
+        bad = self.db.fetch_one(
             "SELECT source FROM food_nutrition_cache WHERE source = 'USDA_FOUNDATION'"
         )
         self.assertIsNone(bad, "No rows should have source='USDA_FOUNDATION'")
@@ -148,6 +148,25 @@ class TestSourcePriority(unittest.TestCase):
             results[0].item.source, "USDA",
             "English query should rank USDA first",
         )
+
+    def test_alias_query_fetches_expanded_candidate(self):
+        """Alias expansion must participate in SQL candidate fetch, not just scoring.
+
+        If DB has '白飯' but user queries '白米飯', the alias '白米飯' → '白飯'
+        must cause '白飯' to be fetched as a candidate before scoring.
+        """
+        self.db.execute(
+            """INSERT INTO food_nutrition_cache
+               (source, food_id, food_name, calories_100g, protein_100g, carb_100g, fat_100g)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            ("TW_FDA", "tw_rice", "白飯", 130, 2.4, 28, 0.3),
+        )
+
+        lookup = FoodDBLookup(db=self.db)
+        results = lookup.search("白米飯")
+
+        self.assertTrue(results, "Alias '白米飯' should find '白飯' via expansion")
+        self.assertEqual(results[0].item.food_name, "白飯")
 
 
 if __name__ == "__main__":

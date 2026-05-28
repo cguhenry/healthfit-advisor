@@ -192,19 +192,27 @@ class TestCanIEatWithDB(unittest.TestCase):
     def test_gain_plan_is_more_lenient(self):
         self._setup_plan(goal_type="gain", calorie_target=2000, protein_target=140)
         self._log_food("沙拉", 400, 20)
-        # consumed = 400, remaining = 1600
-        # Push remaining down so pearl milk tea (scene estimate ~550) overshoots
-        self._log_food("牛排", 800, 60)
-        self._log_food("米飯", 400, 5)
-        # consumed = 1600, remaining = 400
-        # Pearl milk tea ~550 → overshoot = 150
-        # gain: caveat=200 (10%), marginal=500 (25%) → 150 <= 200 → yes_with_caveat
-        # loss: caveat=100 (5%), marginal=300 (15%) → 150 <= 300 → marginal
+        # Push remaining to 200 so pearl milk tea (scene estimate ~550) overshoots
+        self._log_food("牛排", 600, 50)
+        self._log_food("米飯", 800, 10)
+        # consumed = 1800, remaining = 200
+        # Pearl milk tea ~550 → overshoot = 350
+        # gain: caveat=200 (10%), marginal=500 (25%) → 200 < 350 <= 500 → marginal
+        # loss: caveat=100 (5%), marginal=300 (15%) → 350 > 300 → no
         # So gain is indeed more lenient
 
         result = check_can_i_eat(self.db, self.user_id, "珍珠奶茶", quantity=1)
-        self.assertEqual(result.verdict, "yes_with_caveat")
+        self.assertEqual(result.verdict, "marginal")
         self.assertEqual(result.goal_type, "gain")
+
+    def test_can_i_eat_requires_active_plan(self):
+        """check_can_i_eat must raise RuntimeError when user has no active plan."""
+        import uuid
+
+        # No plan inserted — user has no active weight plan
+        with self.assertRaises(RuntimeError) as ctx:
+            check_can_i_eat(self.db, self.user_id, "珍珠奶茶")
+        self.assertIn("沒有 active weight plan", str(ctx.exception))
 
     def test_unknown_food_returns_estimate_with_low_confidence(self):
         self._setup_plan(goal_type="loss", calorie_target=2000, protein_target=120)
