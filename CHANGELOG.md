@@ -22,6 +22,19 @@
 
 - **P1-4** `dining_advisor.py` `format_recommendation()`：`avoid` 清單為空時不印 `⚠️ 較不建議：` header
 
+## 0.9.2 - 2026-05-28 — USDA 資料庫重構
+
+**USDA 資料庫移至 `assets/usda_food_db/foundation_foods_csv/`**
+
+`scripts/food_db_import_pivot.py` 完全重構 USDA 匯入流程：
+
+- 新增 `_resolve_usda_dir()`、`_validate_usda_files()`、`_load_usda_foods()`、`_load_usda_nutrients()`、`_pivot_usda_nutrients()` 輔助函式
+- 新增 `import_usda_foundation()` 取代舊版 `import_usda()`，支援 `foundation_foods_csv/` 新目錄結構
+- 新增 `_upsert_batch()` 使用 `db.transaction()` 批次寫入（避免 `execute_many` Silent failure）
+- CLI 新增 `--usda-dir` 參數：`import-usda --usda-dir assets/usda_food_db/foundation_foods_csv`
+- 移除了不再使用的 `USDA_FOOD_CSV`、`USDA_EXTRACT` 常數及舊 nutrient mapping
+- 成功匯入 4,821 筆 USDA Foundation Foods 營養資料
+
 ## 0.9.1 - 2026-05-27
 
 **Bug fix + Regression tests**
