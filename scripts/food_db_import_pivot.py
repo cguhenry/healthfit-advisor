@@ -25,7 +25,7 @@ import argparse
 import csv
 import os
 import sys
-from collections import defaultdict
+from collections import defaultdict  # kept for TW pivot
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,8 +41,6 @@ from db_manager import DBManager
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 TW_CSV = ASSETS_DIR / "tw_food_db" / "tw_food_db.csv"
-USDA_FOOD_CSV = ASSETS_DIR / "usda_food_db" / "usda_foundation.csv"
-USDA_EXTRACT = Path("/tmp/usda_extract") / "FoodData_Central_foundation_food_csv_2026-04-30"
 
 # Taiwan FDA nutrient mapping: 分析項 → DB column (per 100g)
 # 一般成分: Calories(熱量), Protein(粗蛋白), Fat(粗脂肪, 飽和脂肪),
@@ -204,89 +202,250 @@ def import_taiwan(db: DBManager, file_path: Optional[Path] = None) -> int:
 # USDA Foundation Foods Import
 # ─────────────────────────────────────────────────────────────
 
-def import_usda(db: DBManager) -> int:
-    """Import USDA Foundation Foods by joining food + food_nutrient tables."""
-    extract = USDA_EXTRACT
-    food_csv = extract / "food.csv"
-    nutrient_csv = extract / "food_nutrient.csv"
+# ─────────────────────────────────────────────────────────────
+# USDA Foundation Foods — constants & helpers (foundation_foods_csv/)
+# ─────────────────────────────────────────────────────────────
 
-    if not food_csv.exists():
-        print(f"❌ 找不到 USDA 檔案: {food_csv}")
-        return 0
+from pathlib import Path as _Path
+import csv as _csv
+import os as _os
+from typing import Any
 
-    print(f"📖 讀取 USDA 資料庫: {extract}")
+DEFAULT_USDA_DIR = _Path("assets/usda_food_db/foundation_foods_csv")
 
-    # Step 1: Build nutrient lookup: {fdc_id: {nutrient_id: amount}}
-    print("   載入食物營養素映射...")
-    nutrient_data: dict[str, dict[str, float]] = defaultdict(dict)
-    with open(nutrient_csv, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            fid = row["fdc_id"]
-            nid = row["nutrient_id"]
-            col = USDA_NUTRIENT_IDS.get(nid)
-            if col:
-                try:
-                    amt = float(row["amount"])
-                    if col == "calories_100g":
-                        # Prefer Atwater General (2047) over Specific (2048)
-                        if "calories_100g" not in nutrient_data[fid] or nid == "2047":
-                            nutrient_data[fid][col] = amt
-                    else:
-                        nutrient_data[fid][col] = amt
-                except (ValueError, TypeError):
-                    pass
-    print(f"   營養素資料: {len(nutrient_data)} 種食物")
+# USDA FDC nutrient ID → DB column mapping (per 100g)
+USDA_NUTRIENT_IDS = {
+    "calories_100g":   {1008},  # Energy, kcal
+    "protein_100g":    {1003},  # Protein
+    "fat_100g":        {1004},  # Total lipid (fat)
+    "carb_100g":       {1005},  # Carbohydrate, by difference
+    "fiber_100g":      {1079},  # Fiber, total dietary
+    "sugar_100g":      {2000},  # Sugars, total including NLEA
+    "sodium_mg_100g":  {1093},  # Sodium, Na
+}
 
-    # Step 2: Read food metadata + join with nutrient data
-    print("   匯入食物 + 營養素...")
-    count = 0
-    with open(food_csv, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _to_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if text == "":
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
+
+
+def _resolve_usda_dir(usda_dir: str | _Path | None = None) -> _Path:
+    if usda_dir:
+        path = _Path(usda_dir).expanduser()
+    else:
+        path = _Path(_os.environ.get("HEALTHFIT_USDA_DIR", DEFAULT_USDA_DIR)).expanduser()
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"USDA directory not found: {path}\n"
+            "Please download USDA FoodData Central Foundation Foods CSV "
+            "and provide --usda-dir pointing to the extracted folder containing "
+            "food.csv, food_nutrient.csv, and nutrient.csv."
+        )
+    return path
+
+
+def _validate_usda_files(usda_dir: _Path) -> tuple[_Path, _Path, _Path]:
+    food_csv          = usda_dir / "food.csv"
+    food_nutrient_csv = usda_dir / "food_nutrient.csv"
+    nutrient_csv      = usda_dir / "nutrient.csv"
+
+    missing = [str(p) for p in [food_csv, food_nutrient_csv, nutrient_csv] if not p.exists()]
+
+    if missing:
+        raise FileNotFoundError(
+            "USDA Foundation Foods CSV files are missing:\n"
+            + "\n".join(f"- {x}" for x in missing)
+            + "\nExpected files: food.csv, food_nutrient.csv, nutrient.csv"
+        )
+
+    return food_csv, food_nutrient_csv, nutrient_csv
+
+
+def _load_usda_foods(food_csv: _Path) -> dict[int, dict[str, Any]]:
+    foods: dict[int, dict[str, Any]] = {}
+
+    with food_csv.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = _csv.DictReader(f)
         for row in reader:
-            fid = row["fdc_id"]
-            nutrients = nutrient_data.get(fid, {})
-            if not nutrients:
+            fdc_id = _to_int(row.get("fdc_id"))
+            if fdc_id is None:
+                continue
+            description = (row.get("description") or "").strip()
+            if not description:
                 continue
 
-            try:
-                db.execute(
-                    """INSERT INTO food_nutrition_cache (
-                        source, food_id, food_name, category,
-                        calories_100g, protein_100g, fat_100g, carb_100g,
-                        fiber_100g, sodium_100g
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(source, food_id) DO UPDATE SET
-                        food_name = excluded.food_name,
-                        category = excluded.category,
-                        calories_100g = excluded.calories_100g,
-                        protein_100g = excluded.protein_100g,
-                        fat_100g = excluded.fat_100g,
-                        carb_100g = excluded.carb_100g,
-                        fiber_100g = excluded.fiber_100g,
-                        sodium_100g = excluded.sodium_100g""",
-                    (
-                        "USDA",
-                        f"usda_{fid}",
-                        row.get("description", "Unknown"),
-                        row.get("food_category_id"),
-                        nutrients.get("calories_100g", 0.0),
-                        nutrients.get("protein_100g", 0.0),
-                        nutrients.get("fat_100g", 0.0),
-                        nutrients.get("carb_100g", 0.0),
-                        nutrients.get("fiber_100g", 0.0),
-                        nutrients.get("sodium_100g", 0.0),
-                    ),
-                )
-                count += 1
-                if count % 5000 == 0:
-                    print(f"   ... {count} 筆")
-            except Exception as e:
-                print(f"   ⚠️ 跳過 fdc_id={fid}: {e}")
+            foods[fdc_id] = {
+                "fdc_id":           fdc_id,
+                "description":      description,
+                "data_type":        row.get("data_type"),
+                "food_category_id": row.get("food_category_id"),
+                "publication_date": row.get("publication_date"),
+            }
+
+    return foods
+
+
+def _load_usda_nutrients(nutrient_csv: _Path) -> dict[int, dict[str, Any]]:
+    nutrients: dict[int, dict[str, Any]] = {}
+
+    with nutrient_csv.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            nutrient_id = _to_int(row.get("id"))
+            if nutrient_id is None:
+                continue
+            nutrients[nutrient_id] = row
+
+    return nutrients
+
+
+def _pivot_usda_nutrients(
+    food_nutrient_csv: _Path,
+    valid_fdc_ids: set[int],
+) -> dict[int, dict[str, float]]:
+    id_to_field: dict[int, str] = {}
+    for field, ids in USDA_NUTRIENT_IDS.items():
+        for nutrient_id in ids:
+            id_to_field[nutrient_id] = field
+
+    pivot: dict[int, dict[str, float]] = {}
+
+    with food_nutrient_csv.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            fdc_id      = _to_int(row.get("fdc_id"))
+            nutrient_id = _to_int(row.get("nutrient_id"))
+            amount      = _to_float(row.get("amount"))
+
+            if fdc_id is None or nutrient_id is None or amount is None:
+                continue
+            if fdc_id not in valid_fdc_ids:
                 continue
 
-    print(f"✅ 匯入完成: {count} 筆 USDA 食品資料")
-    return count
+            field = id_to_field.get(nutrient_id)
+            if not field:
+                continue
+
+            pivot.setdefault(fdc_id, {})[field] = amount
+
+    return pivot
+
+
+def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -> int:
+    """
+    Import USDA FoodData Central Foundation Foods CSV into food_nutrition_cache.
+
+    Expected directory (foundation_foods_csv/):
+        food.csv
+        food_nutrient.csv
+        nutrient.csv
+    """
+    usda_path = _resolve_usda_dir(usda_dir)
+    food_csv, food_nutrient_csv, nutrient_csv = _validate_usda_files(usda_path)
+
+    print(f"Loading USDA foods from {food_csv}")
+    foods = _load_usda_foods(food_csv)
+
+    print(f"Loading USDA nutrients from {nutrient_csv}")
+    _load_usda_nutrients(nutrient_csv)  # consumed for debug/logging only
+
+    print(f"Pivoting USDA food nutrients from {food_nutrient_csv}")
+    pivot = _pivot_usda_nutrients(food_nutrient_csv, set(foods.keys()))
+
+    imported = 0
+    batch = []
+    BATCH_SIZE = 500
+
+    for fdc_id, food in foods.items():
+        nutrients = pivot.get(fdc_id)
+        if not nutrients:
+            continue
+
+        calories = nutrients.get("calories_100g")
+        protein  = nutrients.get("protein_100g")
+        carb     = nutrients.get("carb_100g")
+        fat      = nutrients.get("fat_100g")
+
+        # Skip entries with no meaningful nutrition data
+        if calories is None and protein is None and carb is None and fat is None:
+            continue
+
+        batch.append((
+            "USDA_FOUNDATION",
+            f"fdc_{fdc_id}",
+            food["description"],
+            calories,
+            protein,
+            carb,
+            fat,
+            nutrients.get("fiber_100g"),
+            nutrients.get("sodium_mg_100g"),
+            100.0,
+            food.get("food_category_id"),
+        ))
+
+        if len(batch) >= BATCH_SIZE:
+            _upsert_batch(db, batch)
+            imported += len(batch)
+            print(f"   ... {imported} foods imported")
+            batch = []
+
+    if batch:
+        _upsert_batch(db, batch)
+        imported += len(batch)
+
+    print(f"USDA Foundation import complete: {imported} foods")
+    return imported
+
+
+def _upsert_batch(db: DBManager, batch: list[tuple]) -> None:
+    """Bulk upsert a batch of USDA foods using executemany."""
+    db.execute_many(
+        """
+        INSERT INTO food_nutrition_cache (
+            source, food_id, food_name,
+            calories_100g, protein_100g, carb_100g, fat_100g,
+            fiber_100g, sodium_100g,
+            serving_size_g, category
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source, food_id) DO UPDATE SET
+            food_name      = excluded.food_name,
+            calories_100g  = excluded.calories_100g,
+            protein_100g   = excluded.protein_100g,
+            carb_100g      = excluded.carb_100g,
+            fat_100g       = excluded.fat_100g,
+            fiber_100g     = excluded.fiber_100g,
+            sodium_100g    = excluded.sodium_100g,
+            serving_size_g = excluded.serving_size_g,
+            category       = excluded.category
+        """,
+        batch,
+    )
+
+
+# Backward-compat alias
+import_usda = import_usda_foundation
 
 
 # ─────────────────────────────────────────────────────────────
@@ -298,8 +457,23 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("import-tw", help="Import Taiwan FDA food DB (pivot format)")
-    sub.add_parser("import-usda", help="Import USDA Foundation Foods")
-    sub.add_parser("import-all", help="Import both TW + USDA")
+    p_usda = sub.add_parser("import-usda", help="Import USDA Foundation Foods")
+    p_usda.add_argument(
+        "--usda-dir",
+        default=None,
+        help=(
+            "Path to extracted USDA Foundation Foods CSV directory containing "
+            "food.csv, food_nutrient.csv, nutrient.csv "
+            "(default: assets/usda_food_db/foundation_foods_csv/)"
+        ),
+    )
+
+    p_all = sub.add_parser("import-all", help="Import both TW + USDA")
+    p_all.add_argument(
+        "--usda-dir",
+        default=None,
+        help="Path to extracted USDA Foundation Foods CSV directory",
+    )
     sub.add_parser("stats", help="Show current DB stats")
 
     p_clear = sub.add_parser("clear", help="Clear all food cache")
@@ -314,10 +488,10 @@ def main() -> None:
     if args.command == "import-tw":
         import_taiwan(db)
     elif args.command == "import-usda":
-        import_usda(db)
+        import_usda_foundation(db, getattr(args, "usda_dir", None))
     elif args.command == "import-all":
         n_tw = import_taiwan(db)
-        n_us = import_usda(db)
+        n_us = import_usda_foundation(db, getattr(args, "usda_dir", None))
         print(f"\n📊 總計: {n_tw} 台灣 + {n_us} USDA = {n_tw + n_us} 筆食物資料")
     elif args.command == "clear":
         if hasattr(args, "source") and args.source:
