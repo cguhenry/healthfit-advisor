@@ -81,7 +81,7 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
         _set_if_empty(item, calories=180, protein_g=8, carb_g=12, fat_g=8, confidence=0.6)
         if "無糖" in name:
             _add_tag(item, "low_sugar")
-        if "珍珠" not in name and "去珍珠" in name:
+        if "去珍珠" in name:
             _add_tag(item, "reduced_toppings")
         return item
 

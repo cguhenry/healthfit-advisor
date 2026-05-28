@@ -55,19 +55,6 @@ TW_NUTRIENT_MAP = {
     "鈉": "sodium_100g",
 }
 
-# USDA nutrient ID mapping (from foundation food nutrient.csv)
-# 1003=Protein, 1004=Total lipid (fat), 1005=Carbohydrate, 1079=Fiber, 1093=Sodium, 2047/2048=Energy
-USDA_NUTRIENT_IDS = {
-    "1003": "protein_100g",
-    "1004": "fat_100g",
-    "1005": "carb_100g",
-    "1079": "fiber_100g",
-    "1093": "sodium_100g",
-    "2047": "calories_100g",  # Energy (Atwater General Factors)
-    "2048": "calories_100g",  # Energy (Atwater Specific) — fallback
-}
-
-
 # ─────────────────────────────────────────────────────────────
 # Taiwan FDA Pivot + Import
 # ─────────────────────────────────────────────────────────────
@@ -215,13 +202,13 @@ DEFAULT_USDA_DIR = _Path("assets/usda_food_db/foundation_foods_csv")
 
 # USDA FDC nutrient ID → DB column mapping (per 100g)
 USDA_NUTRIENT_IDS = {
-    "calories_100g":   {1008},  # Energy, kcal
-    "protein_100g":    {1003},  # Protein
-    "fat_100g":        {1004},  # Total lipid (fat)
-    "carb_100g":       {1005},  # Carbohydrate, by difference
-    "fiber_100g":      {1079},  # Fiber, total dietary
-    "sugar_100g":      {2000},  # Sugars, total including NLEA
-    "sodium_mg_100g":  {1093},  # Sodium, Na
+    "calories_100g":  {1008, 2047, 2048},  # Energy, kcal — all Atwater variants
+    "protein_100g":   {1003},  # Protein
+    "fat_100g":       {1004},  # Total lipid (fat)
+    "carb_100g":      {1005},  # Carbohydrate, by difference
+    "fiber_100g":     {1079},  # Fiber, total dietary
+    "sugar_100g":     {2000},  # Sugars, total including NLEA
+    "sodium_100g":    {1093},  # Sodium, Na
 }
 
 
@@ -392,7 +379,7 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
             continue
 
         batch.append((
-            "USDA_FOUNDATION",
+            "USDA",
             f"fdc_{fdc_id}",
             food["description"],
             calories,
@@ -400,7 +387,7 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
             carb,
             fat,
             nutrients.get("fiber_100g"),
-            nutrients.get("sodium_mg_100g"),
+            nutrients.get("sodium_100g"),
             100.0,
             food.get("food_category_id"),
         ))

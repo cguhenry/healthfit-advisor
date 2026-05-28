@@ -140,7 +140,8 @@ class FoodDBCache:
 
     @staticmethod
     def _normalize_sources(sources: Optional[list[str]]) -> list[str]:
-        return sorted(sources or ["TW_FDA", "USDA"])
+        # Preserve priority order — do NOT sort here
+        return list(sources or ["TW_FDA", "USDA"])
 
     @staticmethod
     def _make_key(prefix: str, payload: dict[str, Any]) -> str:

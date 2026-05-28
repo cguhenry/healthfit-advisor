@@ -148,6 +148,28 @@ def _match_score(query: str, target: str) -> float:
     return min(0.95, base + word_bonus)
 
 
+def _looks_english_query(text: str) -> bool:
+    """Return True if the query text is predominantly English (ASCII letters > CJK chars)."""
+    ascii_letters = sum(1 for ch in text if ch.isascii() and ch.isalpha())
+    cjk_chars = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    return ascii_letters > 0 and cjk_chars == 0
+
+
+def _source_priority_for_query(query: str) -> list[str]:
+    """Return [primary, secondary] source order based on query language."""
+    if _looks_english_query(query):
+        return ["USDA", "TW_FDA"]
+    return ["TW_FDA", "USDA"]
+
+
+def _source_rank(source: str, priority: list[str]) -> int:
+    """Return sort rank for a source (lower = higher priority). Unknown sources go last."""
+    try:
+        return priority.index(source)
+    except ValueError:
+        return 999
+
+
 # ─────────────────────────────────────────────────────────────
 # Main lookup class
 # ─────────────────────────────────────────────────────────────
@@ -236,8 +258,9 @@ class FoodDBLookup:
         if not query or len(query.strip()) < 1:
             return []
 
+        priority = _source_priority_for_query(query)
         if sources is None:
-            sources = ["TW_FDA", "USDA"]
+            sources = priority
         source_filter = f"AND source IN ({','.join(repr(s) for s in sources)})"
         cat_filter = f"AND category = {repr(category)}" if category else ""
 
@@ -247,7 +270,7 @@ class FoodDBLookup:
             f"""SELECT * FROM food_nutrition_cache
                 WHERE (food_name LIKE ? OR food_name_en LIKE ? OR category LIKE ?)
                 {source_filter} {cat_filter}
-                ORDER BY source, food_name
+                ORDER BY food_name
                 LIMIT 500""",
             (f"%{query}%", f"%{query}%", f"%{query}%"),
         )
@@ -268,7 +291,13 @@ class FoodDBLookup:
             if score >= min_score:
                 scored.append((score, ni, matched_on))
 
-        scored.sort(key=lambda x: x[0], reverse=True)
+        scored.sort(
+            key=lambda x: (
+                -x[0],
+                _source_rank(x[1].source, priority),
+                x[1].food_name,
+            )
+        )
         results: list[SearchResult] = [
             SearchResult(item=ni, match_score=score, matched_on=matched_on)
             for score, ni, matched_on in scored[:top]

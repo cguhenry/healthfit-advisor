@@ -193,17 +193,17 @@ class TestCanIEatWithDB(unittest.TestCase):
         self._setup_plan(goal_type="gain", calorie_target=2000, protein_target=140)
         self._log_food("沙拉", 400, 20)
         # consumed = 400, remaining = 1600
-        # Pearl milk tea unknown → 500g * 2.5 = 1250 kcal → overshoot = 0, "yes"
-        # Not very interesting. Let's eat more and test marginal/gain boundary.
+        # Push remaining down so pearl milk tea (scene estimate ~550) overshoots
         self._log_food("牛排", 800, 60)
-        # consumed = 1200, remaining = 800
-        # With gain, caveat=200 (10% of 2000) → overshoot=1250-800=450, >200
-        # marginal=500 (25% of 2000) → 450 <= 500 → "marginal"
-        # With loss → caveat=100, marginal=300 → 450 > 300 → "no"
+        self._log_food("米飯", 400, 5)
+        # consumed = 1600, remaining = 400
+        # Pearl milk tea ~550 → overshoot = 150
+        # gain: caveat=200 (10%), marginal=500 (25%) → 150 <= 200 → yes_with_caveat
+        # loss: caveat=100 (5%), marginal=300 (15%) → 150 <= 300 → marginal
         # So gain is indeed more lenient
 
         result = check_can_i_eat(self.db, self.user_id, "珍珠奶茶", quantity=1)
-        self.assertEqual(result.verdict, "marginal")
+        self.assertEqual(result.verdict, "yes_with_caveat")
         self.assertEqual(result.goal_type, "gain")
 
     def test_unknown_food_returns_estimate_with_low_confidence(self):
@@ -233,11 +233,12 @@ class TestCanIEatWithDB(unittest.TestCase):
         formatted = format_result(result)
         self.assertIn("蛋白質", formatted)
 
-    def test_no_data_fallback_works(self):
-        """When no weight plan exists, use defaults (2000 kcal target)."""
-        result = check_can_i_eat(self.db, self.user_id, "蕎麥冷麵")
-        self.assertIsInstance(result.verdict, str)
-        self.assertGreater(result.daily_target, 0)
+    def test_no_data_fallback_requires_active_plan(self):
+        """When no weight plan exists, check_can_i_eat raises RuntimeError."""
+        with self.assertRaises(RuntimeError) as ctx:
+            check_can_i_eat(self.db, self.user_id, "蕎麥冷麵")
+        err = str(ctx.exception)
+        self.assertTrue("active" in err or "計畫" in err)
 
     def test_format_result_includes_all_sections(self):
         self._setup_plan(goal_type="loss", calorie_target=2000, protein_target=120)
@@ -245,6 +246,19 @@ class TestCanIEatWithDB(unittest.TestCase):
         formatted = format_result(result)
         self.assertIn("熱量估算", formatted)
         self.assertIn("今日剩餘", formatted)
+
+    def test_can_i_eat_requires_active_plan(self):
+        """Without an active weight plan, check_can_i_eat raises RuntimeError."""
+        db2_path = Path(self.tmp.name + "_no_plan")
+        try:
+            db2 = DBManager(db2_path, fast_mode=True)
+            db2.initialize()
+            with self.assertRaises(RuntimeError) as ctx:
+                check_can_i_eat(db2, "no-plan-user", "珍珠奶茶")
+            err = str(ctx.exception)
+            self.assertTrue("active" in err or "計畫" in err)
+        finally:
+            db2_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

@@ -369,7 +369,16 @@ def check_can_i_eat(
     """
     db.initialize()
 
-    # 1) Today's calorie progress
+    # 1) Require active weight plan
+    plan = db.get_active_plan(user_id)
+    if not plan:
+        raise RuntimeError(
+            f"user_id={user_id} 沒有 active weight plan。"
+            "請先建立計畫，或在 CLI 增加手動 --remaining-calories / --daily-target。"
+        )
+    goal_type = str(plan["goal_type"])
+
+    # 2) Today's calorie progress
     progress = get_calorie_progress(db, user_id, log_date=log_date)
     calories_remaining = float(progress.get("calories_remaining", 0))
     daily_target = int(progress.get("calorie_target", 0))
@@ -379,10 +388,6 @@ def check_can_i_eat(
     protein_consumed = float(progress.get("protein_consumed_g", 0))
     protein_target = float(progress.get("protein_target_g", 0))
     protein_gap_before = protein_target - protein_consumed
-
-    # Get goal_type from active plan
-    plan = db.get_active_plan(user_id)
-    goal_type = str(plan["goal_type"]) if plan else "loss"
 
     # 2) Food search
     lookup = FoodDBLookup(db=db)
@@ -398,7 +403,7 @@ def check_can_i_eat(
         food_cal = ni.calories_for(grams)
         food_prot = ni.protein_for(grams)
         confidence = best.match_score
-        matched_name = ni.food_name
+        matched_name = food_query
         source_type = "db"
         low_confidence = confidence < 0.5
         # Phase 8 Feature 4: compute nutrition quality
@@ -428,7 +433,7 @@ def check_can_i_eat(
             food_cal = estimated.estimated_calories * quantity
             food_prot = (estimated.estimated_protein_g or 0) * quantity
             confidence = estimated.confidence
-            matched_name = f"{food_query}（估算 1 份）"
+            matched_name = food_query
             source_type = "heuristic"
             low_confidence = True
             quality = estimate_nutrition_quality(
@@ -443,7 +448,7 @@ def check_can_i_eat(
             food_cal = grams * 2.5  # ~250 kcal / 100g default
             food_prot = grams * 0.05  # ~5g protein / 100g default
             confidence = 0.0
-            matched_name = f"{food_query}（估算）"
+            matched_name = food_query
             source_type = "heuristic"
             low_confidence = True
             quality = estimate_nutrition_quality(
@@ -661,16 +666,19 @@ def main() -> None:
     args = parser.parse_args()
 
     db = DBManager(Path(args.db_path).expanduser())
-    result = check_can_i_eat(
-        db,
-        user_id=args.user_id,
-        food_query=args.food_query,
-        quantity=args.quantity,
-        meal_type=args.meal_type,
-        log_date=args.date,
-        scene=getattr(args, "scene", None),
-        require_low_gi=getattr(args, "low_gi", False),
-    )
+    try:
+        result = check_can_i_eat(
+            db,
+            user_id=args.user_id,
+            food_query=args.food_query,
+            quantity=args.quantity,
+            meal_type=args.meal_type,
+            log_date=args.date,
+            scene=getattr(args, "scene", None),
+            require_low_gi=getattr(args, "low_gi", False),
+        )
+    except RuntimeError as exc:
+        parser.error(str(exc))
 
     if args.json:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
