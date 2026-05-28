@@ -50,14 +50,22 @@ def load_dining_user_context(
     require_low_gi = False
 
     plan = db.get_active_plan(user_id)
-    if plan:
-        plan_dict = dict(plan)
-        goal_type = str(plan_dict.get("goal_type") or "loss")
+    if not plan:
+        raise RuntimeError(
+            f"user_id={user_id} 沒有 active weight plan。"
+            "請先建立計畫（建議用 Phase 1 的 intake flow），"
+            "或改用 --remaining-calories 手動指定。"
+        )
+    plan_dict = dict(plan)
+    goal_type = str(plan_dict.get("goal_type") or "loss")
 
-        # 從 dietary_restrictions 判斷低 GI 需求
-        restrictions = str(plan_dict.get("dietary_restrictions") or "")
-        if "low_gi" in restrictions or "diabetes" in restrictions or "血糖" in restrictions:
-            require_low_gi = True
+    # 從 dietary_restrictions 判斷低 GI 需求
+    restrictions = str(plan_dict.get("dietary_restrictions") or "")
+    require_low_gi = (
+        "low_gi" in restrictions
+        or "diabetes" in restrictions
+        or "血糖" in restrictions
+    )
 
     return DiningUserContext(
         user_id=user_id,

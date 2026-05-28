@@ -221,17 +221,35 @@ class TestKnownFoodNotFlaggedMissing(unittest.TestCase):
 class TestDiningUserContextStrDbPath(unittest.TestCase):
     def test_load_dining_user_context_accepts_str_db_path(self):
         ctx_mod = _load_module("dining_user_context")
+        DBManager_mod = _load_module("db_manager").DBManager
 
         with tempfile.TemporaryDirectory() as tmp:
             db_path = str(Path(tmp) / "healthfit.db")
 
+            # Create tables + a minimal user + active plan directly
+            db = DBManager_mod(Path(db_path), fast_mode=True)
+            db.initialize()
+            db.execute(
+                "INSERT INTO users (user_id, display_name) VALUES (?, ?)",
+                ("u_test", "Test"),
+            )
+            db.execute(
+                """
+                INSERT INTO weight_plans
+                  (plan_id, user_id, goal_type, daily_calorie_target, protein_target_g,
+                   start_weight_kg, goal_weight_kg, target_date, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                """,
+                ("p_test", "u_test", "loss", 1800, 120, 80.0, 75.0, "2026-05-28"),
+            )
+
             ctx = ctx_mod.load_dining_user_context(
                 db_path=db_path,
-                user_id="u1",
+                user_id="u_test",
                 target_date="2026-05-28",
             )
 
-            self.assertEqual(ctx.user_id, "u1")
+            self.assertEqual(ctx.user_id, "u_test")
             self.assertEqual(ctx.target_date, "2026-05-28")
 
 

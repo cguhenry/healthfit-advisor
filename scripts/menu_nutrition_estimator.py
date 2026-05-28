@@ -42,9 +42,53 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
     name = item.name
 
     # -------------------------
-    # 通用飲料
+    # 便當（須在雞胸通用規則之前，先匹配先贏）
     # -------------------------
-    if "無糖" in name and any(x in name for x in ["茶", "綠茶", "青茶", "烏龍", "紅茶"]):
+    if "雞胸便當" in name:
+        _set_if_empty(item, calories=620, protein_g=45, carb_g=75, fat_g=15, confidence=0.6)
+        _add_tag(item, "high_protein")
+        if "飯半碗" in name:
+            item.estimated_calories = max(0, (item.estimated_calories or 620) - 180)
+            item.estimated_carb_g = max(0, (item.estimated_carb_g or 75) - 40)
+            _add_tag(item, "portion_control")
+        return item
+
+    if "烤雞腿便當" in name or "滷雞腿便當" in name:
+        _set_if_empty(item, calories=750, protein_g=42, carb_g=85, fat_g=28, confidence=0.6)
+        _add_tag(item, "high_protein")
+        if "飯半碗" in name:
+            item.estimated_calories = max(0, (item.estimated_calories or 750) - 180)
+            item.estimated_carb_g = max(0, (item.estimated_carb_g or 85) - 40)
+            _add_tag(item, "portion_control")
+        return item
+
+    if "炸" in name and "便當" in name:
+        _set_if_empty(item, calories=900, protein_g=35, carb_g=90, fat_g=45, confidence=0.55)
+        _add_tag(item, "fried")
+        _add_tag(item, "high_calorie")
+        return item
+
+    if "控肉" in name or "三寶飯" in name:
+        _set_if_empty(item, calories=950, protein_g=28, carb_g=85, fat_g=55, confidence=0.55)
+        _add_tag(item, "high_fat")
+        _add_tag(item, "high_calorie")
+        return item
+
+    # -------------------------
+    # 通用飲料（鮮奶茶要搶在無糖茶之前，因為「鮮奶茶」含「茶」）
+    # -------------------------
+    if "鮮奶茶" in name:
+        _set_if_empty(item, calories=180, protein_g=8, carb_g=12, fat_g=8, confidence=0.6)
+        if "無糖" in name:
+            _add_tag(item, "low_sugar")
+        if "珍珠" not in name and "去珍珠" in name:
+            _add_tag(item, "reduced_toppings")
+        return item
+
+    if "無糖" in name \
+       and any(x in name for x in ["綠茶", "青茶", "烏龍茶", "紅茶"]) \
+       and "奶" not in name:
+        # 不含奶才算無糖純茶；鮮奶茶 / 奶茶已搶先處理
         _set_if_empty(item, calories=0, protein_g=0, carb_g=0, fat_g=0, confidence=0.8)
         _add_tag(item, "low_calorie")
         _add_tag(item, "low_sugar")
@@ -138,7 +182,8 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
     # -------------------------
     # 便利商店
     # -------------------------
-    if "烤雞胸" in name or "雞胸" in name:
+    # 雞胸通用規則：便當已在前面先匹配，先搶到先贏，這裡只處理非便當的雞胸品項
+    if ("烤雞胸" in name or "雞胸" in name) and "便當" not in name:
         _set_if_empty(item, calories=180, protein_g=30, carb_g=5, fat_g=4, confidence=0.75)
         _add_tag(item, "high_protein")
         _add_tag(item, "low_fat")
@@ -162,46 +207,13 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
         return item
 
     # -------------------------
-    # 便當
+    # 便當  ── 見上方「便當」區塊（往前移動以高於便利商店雞胸規則）
     # -------------------------
-    if "雞胸便當" in name:
-        _set_if_empty(item, calories=620, protein_g=45, carb_g=75, fat_g=15, confidence=0.6)
-        _add_tag(item, "high_protein")
-        if "飯半碗" in name:
-            item.estimated_calories = max(0, (item.estimated_calories or 620) - 180)
-            item.estimated_carb_g = max(0, (item.estimated_carb_g or 75) - 40)
-            _add_tag(item, "portion_control")
-        return item
-
-    if "烤雞腿便當" in name or "滷雞腿便當" in name:
-        _set_if_empty(item, calories=750, protein_g=42, carb_g=85, fat_g=28, confidence=0.6)
-        _add_tag(item, "high_protein")
-        if "飯半碗" in name:
-            item.estimated_calories = max(0, (item.estimated_calories or 750) - 180)
-            item.estimated_carb_g = max(0, (item.estimated_carb_g or 85) - 40)
-            _add_tag(item, "portion_control")
-        return item
-
-    if "炸" in name and "便當" in name:
-        _set_if_empty(item, calories=900, protein_g=35, carb_g=90, fat_g=45, confidence=0.55)
-        _add_tag(item, "fried")
-        _add_tag(item, "high_calorie")
-        return item
-
-    if "控肉" in name or "三寶飯" in name:
-        _set_if_empty(item, calories=950, protein_g=28, carb_g=85, fat_g=55, confidence=0.55)
-        _add_tag(item, "high_fat")
-        _add_tag(item, "high_calorie")
-        return item
-
     if "滷蛋" in name:
         _set_if_empty(item, calories=80, protein_g=7, carb_g=1, fat_g=5, confidence=0.7)
         _add_tag(item, "high_protein")
         return item
 
-    # -------------------------
-    # 滷味
-    # -------------------------
     if "青菜" in name and ("豆腐" in name or "豆干" in name) and ("雞" in name or "肉" in name):
         _set_if_empty(item, calories=420, protein_g=35, carb_g=25, fat_g=16, confidence=0.55)
         _add_tag(item, "high_protein")

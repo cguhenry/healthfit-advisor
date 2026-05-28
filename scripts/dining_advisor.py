@@ -93,8 +93,8 @@ def main() -> int:
         choices=scenes,
         help="店家類型",
     )
-    parser.add_argument("--remaining-calories", type=float)
-    parser.add_argument("--protein-gap", type=float, default=0)
+    parser.add_argument("--remaining-calories", type=float, default=None)
+    parser.add_argument("--protein-gap", type=float, default=None)
     parser.add_argument(
         "--goal-type",
         default=None,
@@ -132,13 +132,24 @@ def main() -> int:
 
     # ── Resolve user context (DB auto-fill vs manual) ──────────────────────
     if args.user_id:
-        ctx = load_dining_user_context(
-            db_path=str(Path(args.db_path).expanduser()),
-            user_id=args.user_id,
-            target_date=args.date,
+        try:
+            ctx = load_dining_user_context(
+                db_path=str(Path(args.db_path).expanduser()),
+                user_id=args.user_id,
+                target_date=args.date,
+            )
+        except RuntimeError as exc:
+            parser.error(str(exc))
+        calories_remaining = (
+            args.remaining_calories
+            if args.remaining_calories is not None
+            else ctx.calories_remaining
         )
-        calories_remaining = ctx.calories_remaining
-        protein_gap_g = ctx.protein_gap_g
+        protein_gap_g = (
+            args.protein_gap
+            if args.protein_gap is not None
+            else ctx.protein_gap_g
+        )
         goal_type = (
             args.goal_type
             if args.goal_type is not None
@@ -160,7 +171,7 @@ def main() -> int:
                 "otherwise --remaining-calories must be provided"
             )
         calories_remaining = args.remaining_calories
-        protein_gap_g = args.protein_gap
+        protein_gap_g = args.protein_gap if args.protein_gap is not None else 0
         goal_type = args.goal_type or "loss"
         require_low_gi = args.low_gi
 
