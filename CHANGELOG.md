@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.2 - 2026-05-28
+
+**P0 Bug Fixes**
+
+- **P0-1** `menu_nutrition_estimator.py`：便當區塊移至便利商店規則之前，修正「雞胸便當飯半碗」被錯誤估成 180 kcal 的問題；便利商店雞胸規則加上 `"便當" not in name` 防衛
+
+- **P0-2** `menu_nutrition_estimator.py`：鮮奶茶規則（180 kcal）搶先於無糖茶規則，避免「無糖鮮奶茶去珍珠」被估成 0 kcal；無糖茶規則加 `"奶" not in name` 條件，防止含奶的品項誤觸
+
+- **P0-3** `dining_user_context.py`：`load_dining_user_context()` 在找不到 active plan 時主動 raise `RuntimeError`，不再吐出 0 kcal 造成混洧；`dining_advisor.py` 以 `parser.error()` 呈現錯誤訊息
+
+- **P0-4** `dining_advisor.py`：`--remaining-calories`/`--protein-gap` 預設值改為 `None`，可正確覆寫 DB 值；`--protein-gap or 0` 處理 None 輸入
+
 ## 0.9.1 - 2026-05-27
 
 **Bug fix + Regression tests**
