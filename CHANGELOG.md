@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.9.3 - 2026-05-28
+
+**USDA Source 修正 + Source Priority + can_i_eat 三項 bug 修復**
+
+### Bug 1 — USDA source 統一
+- `food_db_import_pivot.py`: source 從 `"USDA_FOUNDATION"` → `"USDA"`
+- 配合 `FoodDBLookup` / `FoodDBCache` / `data_quality` 的 `Source = Literal["TW_FDA", "USDA"]`
+- **影響**：重新匯入 4,822 筆 USDA 資料
+
+### Bug 2 — USDA nutrient ID mapping 修正
+- 移除第一組重複的 `USDA_NUTRIENT_IDS`（被 Python 後續覆蓋，2047/2048 無效）
+- 能量 ID 從 `{1008}` → `{1008, 2047, 2048}`（涵蓋所有 Atwater 變體）
+- `sodium_mg_100g` → `sodium_100g`（與 DB schema 一致）
+
+### Bug 3 — Source Priority 實作（中文→TW_FDA 優先、英文→USDA 優先）
+- 新增 `_looks_english_query()`、`_source_priority_for_query()`、`_source_rank()`
+- `search()`: 中文 query → `["TW_FDA", "USDA"]`，英文 query → `["USDA", "TW_FDA"]`
+- 排序 key: `(-score, source_rank, food_name)`
+- `FoodDBCache._normalize_sources()` 移除 `sorted()`，保留 priority 順序語意
+
+### Bug 5 — can_i_eat.py 三項修正
+- 強制要求 active plan，無 plan → `RuntimeError`
+- `main()` 包 `try/except RuntimeError` → `parser.error()`
+- `matched_name` 設回 `food_query`，消除輸出「估算 1 份（估算 1 份）」重複問題
+
+### Bug 6 — 去珍珠 tag 條件修正
+- `menu_nutrition_estimator.py`: `"去珍珠" in name` 邏輯修正（原條件因包含珍珠字串永遠不成立）
+
+### Tests
+- `tests/test_can_i_eat.py`: 更新 `test_no_data_fallback_requires_active_plan`、修正 `test_gain_plan_is_more_lenient`（珍珠奶茶熱量從 ~1250→550 kcal）、新增 `test_can_i_eat_requires_active_plan`
+- `tests/test_food_db_lookup.py` (new): 5 個測試涵蓋 USDA 搜尋、巨量營養素完整性、source priority（中文/TW_FDA、英文/USDA）
+
+### Infrastructure
+- `.gitignore`: 新增 `data/` 忽略 SQLite 執行期資料庫
+
 ## 0.9.2 - 2026-05-28
 
 **P0 Bug Fixes**
