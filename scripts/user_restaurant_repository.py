@@ -24,6 +24,7 @@ def upsert_user_restaurant_profile(
     scene: str,
     notes: str | None = None,
 ) -> None:
+    db.initialize()
     db.execute(
         """
         INSERT INTO user_restaurant_profiles (
@@ -48,6 +49,7 @@ def upsert_user_restaurant_item(
     item: MenuItem,
     notes: str | None = None,
 ) -> None:
+    db.initialize()
     db.execute(
         """
         INSERT INTO user_restaurant_menu_items (
@@ -99,6 +101,7 @@ def load_user_restaurant_profile(
     user_id: str,
     restaurant_name: str,
 ) -> dict[str, Any] | None:
+    db.initialize()
     row = db.fetch_one(
         """
         SELECT *
@@ -117,6 +120,7 @@ def load_user_restaurant_items(
     user_id: str,
     restaurant_name: str,
 ) -> list[MenuItem]:
+    db.initialize()
     rows = db.fetchall(
         """
         SELECT *

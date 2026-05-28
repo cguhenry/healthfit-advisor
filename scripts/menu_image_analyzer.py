@@ -34,6 +34,7 @@ LLM 回傳格式（JSON）：
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,25 +42,50 @@ from dining_models import MenuItem
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# JSON fence stripper
+# ─────────────────────────────────────────────────────────────────────────
+
+def _strip_json_fence(text: str) -> str:
+    """
+    Remove markdown code-fence wrappers from LLM output.
+
+    Handles:
+      ```json\n{...}\n```    — normal multi-line
+      ```json\n{...}          — no trailing fence (LLM sometimes omits it)
+      ```{...}```             — inline open+close on same line
+      plain JSON             — returned as-is
+    """
+    text = text.strip()
+    if not text.startswith("```"):
+        return text
+
+    lines = text.splitlines()
+
+    # Case: inline ```json{...}``` (open and close on same line)
+    if len(lines) == 1 and lines[0].startswith("```"):
+        inner = lines[0][3:].strip()  # remove opening ```
+        # remove optional language tag and trailing ```
+        inner = re.sub(r"^json\s*", "", inner, flags=re.IGNORECASE)
+        inner = re.sub(r"\s*```$", "", inner)
+        return inner.strip()
+
+    # Multi-line: skip opening line (```json)
+    if len(lines) >= 2 and lines[0].startswith("```"):
+        lines = lines[1:]
+    # Remove trailing closing ```
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+
+    return "\n".join(lines).strip()
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # JSON → MenuItem parser（純函式，無需 LLM）
 # ─────────────────────────────────────────────────────────────────────────
 
 def parse_menu_items_from_llm_json(raw_json: str) -> tuple[Optional[str], list[MenuItem]]:
-    """
-    將 LLM 回傳的 JSON 轉成 MenuItem list。
-
-    Parameters
-    ----------
-    raw_json : str
-        LLM 回傳的原始 JSON 字串。
-
-    Returns
-    -------
-    tuple[Optional[str], list[MenuItem]]
-        (restaurant_type, items)
-        restaurant_type 可能是 None（JSON 未提供時）。
-    """
-    data = json.loads(raw_json)
+    """Strip markdown fences then parse LLM JSON into MenuItem list."""
+    data = json.loads(_strip_json_fence(raw_json))
 
     restaurant_type: Optional[str] = data.get("restaurant_type")
     rows: list[dict[str, Any]] = data.get("items") or []
