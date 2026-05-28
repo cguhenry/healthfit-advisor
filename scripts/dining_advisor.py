@@ -52,18 +52,19 @@ def format_recommendation(result) -> str:
         if scored.modifications:
             lines.append(f" 調整：{'；'.join(scored.modifications[:3])}")
 
-    lines.append("")
-    lines.append("⚠️ 較不建議：")
-    for idx, scored in enumerate(result.avoid, start=1):
-        item = scored.item
-        cal = (
-            f"{item.estimated_calories:.0f} kcal"
-            if item.estimated_calories is not None
-            else "熱量未知"
-        )
-        lines.append(f"{idx}. {item.name}｜{cal}｜分數 {scored.score:.0f}")
-        if scored.reasons:
-            lines.append(f" 原因：{'；'.join(scored.reasons[:3])}")
+    if result.avoid:
+        lines.append("")
+        lines.append("⚠️ 較不建議：")
+        for idx, scored in enumerate(result.avoid, start=1):
+            item = scored.item
+            cal = (
+                f"{item.estimated_calories:.0f} kcal"
+                if item.estimated_calories is not None
+                else "熱量未知"
+            )
+            lines.append(f"{idx}. {item.name}｜{cal}｜分數 {scored.score:.0f}")
+            if scored.reasons:
+                lines.append(f" 原因：{'；'.join(scored.reasons[:3])}")
 
     if result.general_modifications:
         lines.append("")

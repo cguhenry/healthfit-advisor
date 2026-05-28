@@ -29,7 +29,8 @@ if str(_SCRIPT_DIR) not in sys.path:
 from calorie_tracker import get_calorie_progress
 from db_manager import DBManager
 from dining_context_engine import recommend_without_menu
-from dining_models import GoalType
+from dining_models import GoalType, MenuItem
+from menu_nutrition_estimator import estimate_menu_item_nutrition
 from food_db_lookup import FoodDBLookup, SearchResult
 from food_preference_engine import get_food_fingerprint
 from data_quality import estimate_nutrition_quality, MatchMethod  # noqa: PLC0415
@@ -414,24 +415,44 @@ def check_can_i_eat(
             is_ai_estimate=False,
         )
     else:
-        # No match in DB — use heuristic defaults
+        # No match in DB — try dining estimator first, then fall back to rough heuristic
         serving_g = _default_serving_for(food_query)
         grams = serving_g * quantity
-        # Rough calorie-per-100g estimate for unknown food
-        food_cal = grams * 2.5  # ~250 kcal / 100g default
-        food_prot = grams * 0.05  # ~5g protein / 100g default
-        confidence = 0.0
-        matched_name = f"{food_query}（估算）"
-        source_type = "heuristic"
-        low_confidence = True
-        # Phase 8 Feature 4: heuristic = very low quality
-        quality = estimate_nutrition_quality(
-            source="AI_EST",
-            match_score=None,
-            match_method="llm_estimate",
-            has_required_macros=False,
-            is_ai_estimate=True,
+
+        # P1-3: attempt rule-based estimation before crude fallback
+        estimated = estimate_menu_item_nutrition(
+            MenuItem(name=food_query, source="user_text"),
+            scene=scene or "general",
         )
+        if estimated.estimated_calories is not None:
+            food_cal = estimated.estimated_calories * quantity
+            food_prot = (estimated.estimated_protein_g or 0) * quantity
+            confidence = estimated.confidence
+            matched_name = f"{food_query}（估算 1 份）"
+            source_type = "heuristic"
+            low_confidence = True
+            quality = estimate_nutrition_quality(
+                source="AI_EST",
+                match_score=None,
+                match_method="llm_estimate",
+                has_required_macros=False,
+                is_ai_estimate=True,
+            )
+        else:
+            # Rough calorie-per-100g estimate for unknown food
+            food_cal = grams * 2.5  # ~250 kcal / 100g default
+            food_prot = grams * 0.05  # ~5g protein / 100g default
+            confidence = 0.0
+            matched_name = f"{food_query}（估算）"
+            source_type = "heuristic"
+            low_confidence = True
+            quality = estimate_nutrition_quality(
+                source="AI_EST",
+                match_score=None,
+                match_method="llm_estimate",
+                has_required_macros=False,
+                is_ai_estimate=True,
+            )
 
     protein_gap_after = protein_gap_before - food_prot  # after eating this food
 
@@ -481,7 +502,8 @@ def check_can_i_eat(
                         if item.estimated_protein_g is not None
                         else "蛋白質未知"
                     )
-                    alternatives.append(f"  • {item.name}｜{cal_str}｜{prot_str}")
+                    # Store without leading bullet — format_result adds "• " prefix
+                    alternatives.append(f"{item.name}｜{cal_str}｜{prot_str}")
                 dining_rec_added = True
         except Exception:
             pass  # dining rec is best-effort; don't crash the whole check
@@ -585,7 +607,11 @@ def format_result(result: CanIEatResult) -> str:
         if result.alternatives:
             lines.append(f"🔄 替代選項：")
             for alt in result.alternatives:
-                lines.append(f"• {alt}")
+                if alt.endswith("："):
+                    # Sub-section header — no bullet
+                    lines.append(alt)
+                else:
+                    lines.append(f"• {alt}")
             lines.append("")
 
     if abs(result.protein_gap_after) > 5:
