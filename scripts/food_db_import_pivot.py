@@ -420,28 +420,29 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
 
 
 def _upsert_batch(db: DBManager, batch: list[tuple]) -> None:
-    """Bulk upsert a batch of USDA foods using executemany."""
-    db.execute_many(
-        """
-        INSERT INTO food_nutrition_cache (
-            source, food_id, food_name,
-            calories_100g, protein_100g, carb_100g, fat_100g,
-            fiber_100g, sodium_100g,
-            serving_size_g, category
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(source, food_id) DO UPDATE SET
-            food_name      = excluded.food_name,
-            calories_100g  = excluded.calories_100g,
-            protein_100g   = excluded.protein_100g,
-            carb_100g      = excluded.carb_100g,
-            fat_100g       = excluded.fat_100g,
-            fiber_100g     = excluded.fiber_100g,
-            sodium_100g    = excluded.sodium_100g,
-            serving_size_g = excluded.serving_size_g,
-            category       = excluded.category
-        """,
-        batch,
-    )
+    """Bulk upsert a batch of USDA foods inside a single transaction."""
+    with db.transaction() as conn:
+        conn.executemany(
+            """
+            INSERT INTO food_nutrition_cache (
+                source, food_id, food_name,
+                calories_100g, protein_100g, carb_100g, fat_100g,
+                fiber_100g, sodium_100g,
+                serving_size_g, category
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, food_id) DO UPDATE SET
+                food_name      = excluded.food_name,
+                calories_100g  = excluded.calories_100g,
+                protein_100g   = excluded.protein_100g,
+                carb_100g      = excluded.carb_100g,
+                fat_100g       = excluded.fat_100g,
+                fiber_100g     = excluded.fiber_100g,
+                sodium_100g    = excluded.sodium_100g,
+                serving_size_g = excluded.serving_size_g,
+                category       = excluded.category
+            """,
+            batch,
+        )
 
 
 # Backward-compat alias
