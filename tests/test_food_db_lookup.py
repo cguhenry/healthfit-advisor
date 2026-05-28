@@ -169,5 +169,23 @@ class TestSourcePriority(unittest.TestCase):
         self.assertEqual(results[0].item.food_name, "白飯")
 
 
+    def test_food_db_lookup_parses_raw_json(self) -> None:
+        """raw_json column is parsed from JSON string to dict, not left as raw string."""
+        self.db.execute(
+            """INSERT INTO food_nutrition_cache
+               (source, food_id, food_name, calories_100g, protein_100g,
+                carb_100g, fat_100g, raw_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("USDA", "fdc_raw", "Raw JSON Test Food", 100, 10, 5, 2,
+             '{"fdc_id": 123, "extra": "value"}'),
+        )
+
+        lookup = FoodDBLookup(db=self.db)
+        results = lookup.search("Raw JSON Test Food")
+
+        self.assertTrue(results)
+        self.assertEqual(results[0].item.raw_json, {"fdc_id": 123, "extra": "value"})
+
+
 if __name__ == "__main__":
     unittest.main()
