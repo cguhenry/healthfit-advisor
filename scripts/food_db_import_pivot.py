@@ -252,22 +252,22 @@ def _resolve_usda_dir(usda_dir: str | _Path | None = None) -> _Path:
     return path
 
 
-def _validate_usda_files(usda_dir: _Path) -> tuple[_Path, _Path, _Path, _Path]:
+def _validate_usda_files(usda_dir: _Path) -> tuple[_Path, _Path, _Path, _Path | None]:
     food_csv          = usda_dir / "food.csv"
     food_nutrient_csv = usda_dir / "food_nutrient.csv"
     nutrient_csv      = usda_dir / "nutrient.csv"
     foundation_csv    = usda_dir / "foundation_food.csv"
 
-    missing = [str(p) for p in [food_csv, food_nutrient_csv, nutrient_csv, foundation_csv] if not p.exists()]
+    missing = [str(p) for p in [food_csv, food_nutrient_csv, nutrient_csv] if not p.exists()]
 
     if missing:
         raise FileNotFoundError(
             "USDA Foundation Foods CSV files are missing:\n"
             + "\n".join(f"- {x}" for x in missing)
-            + "\nExpected files: food.csv, food_nutrient.csv, nutrient.csv, foundation_food.csv"
+            + "\nExpected files: food.csv, food_nutrient.csv, nutrient.csv"
         )
 
-    return food_csv, food_nutrient_csv, nutrient_csv, foundation_csv
+    return food_csv, food_nutrient_csv, nutrient_csv, foundation_csv if foundation_csv.exists() else None
 
 
 def _load_usda_foundation_ids(foundation_csv: _Path) -> set[int]:
@@ -380,20 +380,26 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
     """
     Import USDA FoodData Central Foundation Foods CSV into food_nutrition_cache.
 
-    Expected directory (foundation_foods_csv/):
+    Expected directory:
         food.csv
         food_nutrient.csv
         nutrient.csv
+
+    Optional:
+        foundation_food.csv
     """
     usda_path = _resolve_usda_dir(usda_dir)
-    food_csv, food_nutrient_csv, nutrient_csv = _validate_usda_files(usda_path)
 
     print(f"Validating USDA files in {usda_path}")
     food_csv, food_nutrient_csv, nutrient_csv, foundation_csv = _validate_usda_files(usda_path)
 
-    print(f"Loading USDA foundation food IDs from {foundation_csv}")
-    foundation_ids = _load_usda_foundation_ids(foundation_csv)
-    print(f"   Found {len(foundation_ids)} Foundation Food IDs")
+    foundation_ids: set[int] = set()
+    if foundation_csv is not None:
+        print(f"Loading USDA foundation food IDs from {foundation_csv}")
+        foundation_ids = _load_usda_foundation_ids(foundation_csv)
+        print(f"   Found {len(foundation_ids)} Foundation Food IDs")
+    else:
+        print("foundation_food.csv not found; falling back to data_type == foundation_food")
 
     print(f"Loading USDA foods from {food_csv}")
     foods = _load_usda_foods(food_csv, foundation_ids)
@@ -416,8 +422,8 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
         carb     = nutrients.get("carb_100g")
         fat      = nutrients.get("fat_100g")
 
-        # Skip entries with no meaningful nutrition data
-        if calories is None and protein is None and carb is None and fat is None:
+        # Skip entries missing all four core macros — avoids 0-kcal illusions
+        if calories is None or protein is None or carb is None or fat is None:
             continue
 
         batch.append((
