@@ -11,6 +11,8 @@ dining_user_context.py — Phase 2A: 從 DB 載入使用者今日外食上下文
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, asdict
 from datetime import date
 
@@ -56,16 +58,55 @@ def load_dining_user_context(
             "請先建立計畫（建議用 Phase 1 的 intake flow），"
             "或改用 --remaining-calories 手動指定。"
         )
+    # ── dietary_restrictions 解析 ─────────────────────────────────────────
+    def _parse_dietary_restrictions(value: object) -> list[str]:
+        """Parse dietary_restrictions from DB (list, JSON string, or plain text)."""
+        if value is None:
+            return []
+
+        if isinstance(value, list):
+            return [str(x).strip() for x in value if str(x).strip()]
+
+        text = str(value).strip()
+        if not text:
+            return []
+
+        # Try JSON array
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(x).strip() for x in parsed if str(x).strip()]
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: comma-separated (backward compatible)
+        return [
+            x.strip()
+            for x in text.replace("\uff0c", ",").replace("，", ",").split(",")
+            if x.strip()
+        ]
+
+    def _requires_low_gi(restrictions: list[str]) -> bool:
+        """Check if restrictions indicate low-GI / blood-sugar control need."""
+        normalized = {x.lower() for x in restrictions}
+        return bool(
+            normalized
+            & {
+                "low_gi",
+                "low-gi",
+                "diabetes",
+                "blood_sugar_control",
+                "血糖控制",
+                "低gi",
+                "低升糖",
+            }
+        )
+
     plan_dict = dict(plan)
     goal_type = str(plan_dict.get("goal_type") or "loss")
 
-    # 從 dietary_restrictions 判斷低 GI 需求
-    restrictions = str(plan_dict.get("dietary_restrictions") or "")
-    require_low_gi = (
-        "low_gi" in restrictions
-        or "diabetes" in restrictions
-        or "血糖" in restrictions
-    )
+    restrictions = _parse_dietary_restrictions(plan_dict.get("dietary_restrictions"))
+    require_low_gi = _requires_low_gi(restrictions)
 
     return DiningUserContext(
         user_id=user_id,

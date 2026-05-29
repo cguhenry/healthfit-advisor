@@ -54,11 +54,15 @@ def format_recommendation(result) -> str:
 
     if result.avoid:
         lines.append("")
-        avoid_header = (
-            "⚠️ 依目前目標較不適合："
-            if getattr(result, "avoid_mode", "score_threshold") == "template_patterns"
-            else "⚠️ 較不建議："
-        )
+        avoid_mode = getattr(result, "avoid_mode", "score_threshold")
+
+        if avoid_mode == "template_patterns":
+            avoid_header = "⚠️ 此類店家通常較不建議："
+        elif avoid_mode == "score_threshold":
+            avoid_header = "⚠️ 依目前目標較不適合："
+        else:
+            avoid_header = "⚠️ 較需注意："
+
         lines.append(avoid_header)
         for idx, scored in enumerate(result.avoid, start=1):
             item = scored.item

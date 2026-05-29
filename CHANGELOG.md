@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.4 - 2026-05-29
+
+**P0 Bug 修復：dining_advisor avoid_header 語意 + dining_user_context JSON parsing**
+
+### P0-1 — dining_advisor.py avoid_header 邏輯修復
+- `avoid_mode == "template_patterns"` → `⚠️ 此類店家通常較不建議：`
+  - 用途：此類店家普遍不適合的品項（如早餐店的奶茶、薯餅、炸雞塊）
+- `avoid_mode == "score_threshold"` → `⚠️ 依目前目標較不適合：`
+  - 用途：依用戶目標與分數門檻不適合的品項
+- `else` → `⚠️ 較需注意：`（新增 fallback）
+
+### P0-2 — dining_user_context.py JSON dietary_restrictions 解析
+- 新增 `_parse_dietary_restrictions(value)`：完整支援 Python list、JSON string、逗號分隔文字
+- 新增 `_requires_low_gi(restrictions)`：正規化比對 low_gi / diabetes / 血糖控制 等關鍵詞（大小寫不敏感）
+- 取代原本 `str(plan_dict.get("dietary_restrictions") or "")` 的粗糙比對
+- 支援 `["low_gi"]`、`"[\"low_gi\"]"`、`"low_gi, diabetes"` 等多種儲存格式
+
+### Tests
+- 新增 `scripts/test_dining_user_context.py`：16 個單元測試 + 1 個整合測試
+
 ## 0.9.3 - 2026-05-28
 
 **USDA Source 修正 + Source Priority + can_i_eat 三項 bug 修復**
