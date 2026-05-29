@@ -14,6 +14,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+# ── path helpers ─────────────────────────────────────────────────────────────
+_SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+_DB_SCHEMA = _SCRIPTS / "db_schema.sql"
+
 # ── helpers ────────────────────────────────────────────────────────────────
 
 
@@ -21,9 +25,7 @@ def _db_with_plan(plan: dict, tmp_path: Path) -> Path:
     """Build a minimal DB with the weight_plan row including dietary_restrictions."""
     db_path = tmp_path / "healthfit.db"
     conn = sqlite3.connect(db_path)
-    conn.executescript(
-        Path(__file__).resolve().parent.joinpath("db_schema.sql").read_text()
-    )
+    conn.executescript(_DB_SCHEMA.read_text())
     conn.execute(
         "INSERT INTO users (user_id,display_name,gender,age,height_cm,created_at) "
         "VALUES ('u1','Test','M',30,175,'2026-01-01')"
@@ -194,7 +196,7 @@ def test_require_low_gi_from_json_restrictions(tmp_path: Path):
     weight_plans dietary_restrictions column must be correctly parsed
     and trigger require_low_gi=True on load.
     """
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    sys.path.insert(0, str(_SCRIPTS))
     from dining_user_context import load_dining_user_context
 
     plan = {

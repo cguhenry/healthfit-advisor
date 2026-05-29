@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS weight_plans (
     target_date DATE,
     goal_type VARCHAR(10),
     warnings TEXT,
+    dietary_restrictions TEXT DEFAULT '[]',
     trajectory_json TEXT,
     plan_start_date DATE,
     is_plateau_adjustment INTEGER DEFAULT 0,

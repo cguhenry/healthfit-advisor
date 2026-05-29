@@ -153,6 +153,8 @@ def fetch_chart_data(
     # Default from_date: up to 90 days before to_date, but not before plan_start
     default_from = max(plan_start, to_date - timedelta(days=90))
     from_date = from_date or default_from
+    # Always clamp to plan_start to avoid blank chart prefix
+    from_date = max(from_date, plan_start)
 
     if from_date > to_date:
         return None
@@ -376,6 +378,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--height", type=int, default=12)
 
     args = parser.parse_args(argv)
+
+    # Validate width/height
+    if args.width < 10:
+        parser.error("--width must be at least 10")
+    if args.height < 4:
+        parser.error("--height must be at least 4")
 
     to_date = date.fromisoformat(args.to_date) if args.to_date else None
     from_date = date.fromisoformat(args.from_date) if args.from_date else None
