@@ -244,7 +244,7 @@ def estimate_menu_item_nutrition(item: MenuItem, scene: str | None = None) -> Me
         _add_tag(item, "high_protein")
         return item
 
-    if "王子麵" in name or "火鍋料" in name or "沙茶" in name:
+    if "火鍋料" in name or "沙茶" in name:
         _set_if_empty(item, calories=350, protein_g=8, carb_g=35, fat_g=20, confidence=0.5)
         _add_tag(item, "processed")
         _add_tag(item, "high_calorie")

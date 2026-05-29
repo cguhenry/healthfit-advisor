@@ -54,7 +54,12 @@ def format_recommendation(result) -> str:
 
     if result.avoid:
         lines.append("")
-        lines.append("⚠️ 較不建議：")
+        avoid_header = (
+            "⚠️ 依目前目標較不適合："
+            if getattr(result, "avoid_mode", "score_threshold") == "template_patterns"
+            else "⚠️ 較不建議："
+        )
+        lines.append(avoid_header)
         for idx, scored in enumerate(result.avoid, start=1):
             item = scored.item
             cal = (
@@ -81,7 +86,7 @@ def format_recommendation(result) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     scenes = list_supported_scenes()
 
     parser = argparse.ArgumentParser(description="外食情境推薦")
@@ -129,7 +134,7 @@ def main() -> int:
         help="LLM model name（預設 gpt-4o）",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # ── Resolve user context (DB auto-fill vs manual) ──────────────────────
     # Manual context takes priority; allow --user-id to be used for restaurant

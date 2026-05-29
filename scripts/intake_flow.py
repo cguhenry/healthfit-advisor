@@ -22,6 +22,14 @@ REQUIRED_PROFILE_FIELDS = {
 }
 
 REQUIRED_PLAN_FIELDS = {"goal_weight_kg", "target_weeks"}
+ALLOWED_DIETARY_RESTRICTIONS = {
+    "low_gi",
+    "vegetarian",
+    "low_sodium",
+    "low_fat",
+    "dairy_free",
+    "nut_free",
+}
 ALLOWED_GENDERS = {"M", "F", "X"}
 ALLOWED_ACTIVITY_LEVELS = {"sedentary", "light", "moderate", "active", "very_active"}
 ALLOWED_RISK_FLAGS = {"minor", "pregnancy", "chronic_disease", "eating_disorder"}
@@ -92,12 +100,20 @@ def run_intake(payload: Dict[str, Any], *, persist: bool = True, profile_path: P
         risk_flags=risk_flags,
     )
 
+    dietary_restrictions = payload.get("dietary_restrictions") or []
+    unknown_restrictions = sorted(set(dietary_restrictions) - ALLOWED_DIETARY_RESTRICTIONS)
+    if unknown_restrictions:
+        raise ValueError(f"unknown dietary_restrictions: {', '.join(unknown_restrictions)}")
+
     result = {
         "profile": asdict(profile),
         "plan": plan.to_dict(),
         "persisted": False,
         "active_plan_id": None,
     }
+    # Attach dietary_restrictions before persisting
+    result["plan"]["dietary_restrictions"] = dietary_restrictions
+
     if persist:
         db = DBManager(db_path or DBManager().db_path, fast_mode=db_fast_mode)
         db.upsert_user_profile(result["profile"])

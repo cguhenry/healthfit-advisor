@@ -20,7 +20,12 @@ import json
 import os
 from typing import Any, Optional
 
-import requests
+try:
+    import requests as _requests
+    _REQUESTS_AVAILABLE = True
+except ImportError:
+    _requests = None
+    _REQUESTS_AVAILABLE = False
 
 # ─────────────────────────────────────────────────────────────────────────
 # Prompt template
@@ -123,7 +128,13 @@ def explain_recommendation(
         "max_tokens": 1024,
     }
 
-    response = requests.post(
+    if not _REQUESTS_AVAILABLE or _requests is None:
+        raise RuntimeError(
+            "requests library is not installed. "
+            "Install it with: pip install requests"
+        )
+
+    response = _requests.post(
         "https://api.openai.com/v1/chat/completions",
         headers={
             "Authorization": f"Bearer {api_key}",

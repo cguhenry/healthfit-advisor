@@ -390,6 +390,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_caneat.add_argument("args", nargs=argparse.REMAINDER,
                           help="Arguments forwarded to can_i_eat.py")
 
+    p_dining = sub.add_parser("dining", help="外食推薦（dining_advisor.py）")
+    p_dining.add_argument("args", nargs=argparse.REMAINDER,
+                         help="Arguments forwarded to dining_advisor.py")
+
     return parser
 
 
@@ -466,6 +470,10 @@ def dispatch(argv: Sequence[str] | None = None) -> int:
 
     if command == "can-eat":
         return _run_script("can_i_eat.py", rest)
+
+    if command == "dining":
+        from dining_advisor import main as dining_main  # noqa: PLC0415
+        return dining_main(rest)
 
     raise ValueError(f"unsupported command path: {command}")
 

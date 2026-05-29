@@ -21,6 +21,7 @@ WEIGHT_PLAN_COLUMNS = {
     "daily_calorie_delta": "INTEGER",
     "warnings": "TEXT",
     "requires_professional_review": "BOOLEAN DEFAULT FALSE",
+    "dietary_restrictions": "TEXT DEFAULT '[]'",
 }
 
 # Phase 8 Feature 4: extra columns for data-quality tracking
@@ -209,9 +210,10 @@ class DBManager:
                         weekly_change_kg, weekly_change_pct, bmr, tdee, activity_level,
                         daily_calorie_target, daily_calorie_delta,
                         protein_target_g, carb_target_g, fat_target_g,
-                        target_date, goal_type, warnings, requires_professional_review, is_active
+                        target_date, goal_type, warnings, requires_professional_review, is_active,
+                        dietary_restrictions
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
                     """,
                     (
                         plan_id,
@@ -233,6 +235,7 @@ class DBManager:
                         plan["goal_type"],
                         json.dumps(plan.get("warnings", []), ensure_ascii=False),
                         bool(plan.get("requires_professional_review", False)),
+                        json.dumps(plan.get("dietary_restrictions", []), ensure_ascii=False),
                     ),
                 )
             return plan_id

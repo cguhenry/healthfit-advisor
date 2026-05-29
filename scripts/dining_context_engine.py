@@ -108,6 +108,7 @@ def recommend_without_menu(
             f"以下依照「{template.display_name}」常見品項推估，"
             "不代表該店一定有販售。若提供實際菜單照片，可做更精準推薦。"
         ),
+        avoid_mode="template_patterns",
     )
 
 
@@ -147,9 +148,9 @@ def recommend_from_menu_items(
 
     source_mode = items[0].source if items else "user_text"
 
-    recommended = scored[:top_n]
-    remaining = scored[top_n:]
-    avoid = sorted(remaining, key=lambda x: x.score)[:top_n]
+    AVOID_SCORE_THRESHOLD = 45
+    recommended = [s for s in scored if s.score >= AVOID_SCORE_THRESHOLD][:top_n]
+    avoid = [s for s in sorted(scored, key=lambda x: x.score) if s.score < AVOID_SCORE_THRESHOLD][:top_n]
 
     modifications: list[str] = []
     warnings: list[str] = []
@@ -170,4 +171,5 @@ def recommend_from_menu_items(
         general_modifications=modifications,
         warnings=warnings,
         summary=summary,
+        avoid_mode="score_threshold",
     )

@@ -45,6 +45,9 @@ tools:
   - name: menu_suggest
     description: "推薦外食菜單。"
     entry: "python3 scripts/healthfit.py menu"
+  - name: dining_advise
+    description: "外食推薦引擎，支援 --scene 指定店家類型、--menu-json 讀取實際菜單 JSON、--user-id 從 DB 自動帶入今日狀態。"
+    entry: "python3 scripts/healthfit.py dining"
   - name: alert_check
     description: "執行健康警示檢查；遇到連續 2 週停滯時，會自動重算並寫入新的 active plan。"
     entry: "python3 scripts/healthfit.py alert check"

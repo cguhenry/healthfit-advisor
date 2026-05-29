@@ -95,6 +95,7 @@ class DiningRecommendation:
     general_modifications: list[str]
     warnings: list[str]
     summary: str
+    avoid_mode: str = "score_threshold"
 
     def to_dict(self) -> dict:
         return {
@@ -104,4 +105,5 @@ class DiningRecommendation:
             "general_modifications": self.general_modifications,
             "warnings": self.warnings,
             "summary": self.summary,
+            "avoid_mode": self.avoid_mode,
         }

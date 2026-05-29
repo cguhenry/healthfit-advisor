@@ -44,10 +44,6 @@ def score_menu_item(
             score += 8
             reasons.append("較符合減脂期熱量控制")
 
-        if goal_type == "loss" and calories <= 500:
-            score += 8
-            reasons.append("較符合減脂期熱量控制")
-
         if goal_type == "gain" and calories >= 500:
             score += 5
             reasons.append("增肌期可接受較高熱量，但仍需注意食物品質")
