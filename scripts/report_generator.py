@@ -296,6 +296,19 @@ def generate_weekly_report(
         lines.append("  尚無體重記錄")
     lines.append("")
 
+    # ── Weight trajectory chart ─────────────────────────────────────
+    try:
+        from weight_chart import fetch_chart_data, render_ascii_chart
+
+        chart_data = fetch_chart_data(db, user_id, from_date=ws_date, to_date=we_date)
+        if chart_data:
+            lines.append("📈 體重趨勢")
+            lines.append(render_ascii_chart(chart_data, width=46, height=10))
+            lines.append("")
+    except Exception as exc:
+        lines.append(f" （體重趨勢圖產生失敗：{exc}）")
+        lines.append("")
+
     # ── Weekly score ─────────────────────────────────────────────────
     _h(lines, "⭐ 每週評分", level=2)
     lines.append("")

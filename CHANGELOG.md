@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.9.5 - 2026-05-29
+
+**Feature G: ASCII 體重預測視覺化（weight_chart.py）**
+
+### 新增檔案
+- `scripts/weight_chart.py`：體重預測 vs 實際曲線視覺化
+- `tests/test_weight_chart.py`：19 個單元與整合測試
+
+### 新功能（Step G3–G9）
+
+**G3–G5: 資料讀取**
+- `WeightChartData` dataclass：攜帶完整 chart 所需資料
+- `_linear_trajectory()`：當 DB 無 `trajectory_json` 時，以線性插值 fallback 產生 trajectory
+- `_load_trajectory()`：從 `weight_plans.trajectory_json` 解析 trajectory（支援 JSON list，失敗 return None）
+- `fetch_chart_data()`：從 active plan + `weight_logs` 讀取並組裝 `WeightChartData`
+
+**G7: ASCII 圖表渲染**
+- `render_ascii_chart()`：終端機友好 ASCII chart
+  - `·` 預測曲線
+  - `●` 實際記錄（覆蓋預測）
+  - `━` 目標體重水平線
+  - Y 軸自動縮放（資料 min/max ±8% padding）
+  - 支援 `--width` / `--height` 自訂尺寸
+
+**G8: 進度文字**
+- `_compute_progress_label()`：根據 actual vs predicted 差距計算進度狀態
+  - 「如期進行 ✅」「超前 N 天 ✅」「落後 N 天 ⚠️」
+  - 自動判斷減重/增肌方向（`goal_weight` vs `predicted[0]`）
+
+**G9: CLI**
+- `main()`：完整 argparse CLI，支援 `--user-id`、`--weeks`、`--from-date`、`--to-date`、`--width`、`--height`
+
+### DB Schema 變更（Step G1–G2）
+- `db_schema.sql`：`weight_plans` 表新增 `trajectory_json TEXT`、`plan_start_date DATE`
+- `db_manager.py`：`WEIGHT_PLAN_COLUMNS` + migration 同步支援新欄位
+- `save_active_plan()`：寫入 `trajectory_json`（來自 plan.trajectory，若有）與 `plan_start_date`
+
+### 整合（Step G10–G11）
+- `healthfit.py`：新增 `chart` 子命令，forward 到 `weight_chart.py`
+- `report_generator.py`：週報在「⚖️ 體重變化」區塊後自動嵌入 ASCII chart（try/except 包住）
+
+### Chart 符號說明
+| 符號 | 意義 |
+|------|------|
+| `·` | 預測曲線（BWPCalculator 或線性插值） |
+| `●` | 實際體重記錄（weight_logs） |
+| `━` | 目標體重水平線 |
+
+### 使用方式
+```bash
+# 獨立 CLI
+PYTHONPATH=scripts python scripts/healthfit.py chart --user-id u1 --weeks 12
+
+# 自訂尺寸與日期範圍
+PYTHONPATH=scripts python scripts/healthfit.py chart --user-id u1 --from-date 2026-05-01 --to-date 2026-05-29 --width 60 --height 15
+
+# 週報自動包含（无需额外参数）
+python3 scripts/healthfit.py report weekly --user-id u1
+```
+
+---
+
 ## 0.9.4 - 2026-05-29
 
 **P0 Bug 修復：dining_advisor avoid_header 語意 + dining_user_context JSON parsing**

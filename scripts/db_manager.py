@@ -5,8 +5,9 @@ import sqlite3
 import uuid
 import json
 from contextlib import closing, contextmanager
+from datetime import date
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Iterator
+from typing import Iterable, Iterator, Mapping, Optional
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 DEFAULT_SCHEMA_PATH = Path(__file__).resolve().with_name("db_schema.sql")
@@ -22,6 +23,8 @@ WEIGHT_PLAN_COLUMNS = {
     "warnings": "TEXT",
     "requires_professional_review": "BOOLEAN DEFAULT FALSE",
     "dietary_restrictions": "TEXT DEFAULT '[]'",
+    "trajectory_json": "TEXT",
+    "plan_start_date": "DATE",
 }
 
 # Phase 8 Feature 4: extra columns for data-quality tracking
@@ -200,6 +203,15 @@ class DBManager:
         self.initialize()
         plan_id = str(uuid.uuid4())
         macros = plan["macros"]
+
+        plan_start_date = str(plan.get("plan_start_date") or date.today().isoformat())
+        trajectory = plan.get("trajectory")
+        trajectory_json = (
+            json.dumps(trajectory, ensure_ascii=False)
+            if isinstance(trajectory, list)
+            else None
+        )
+
         with closing(self.connect()) as conn:
             with conn:
                 conn.execute("UPDATE weight_plans SET is_active = 0 WHERE user_id = ? AND is_active = 1", (user_id,))
@@ -211,9 +223,9 @@ class DBManager:
                         daily_calorie_target, daily_calorie_delta,
                         protein_target_g, carb_target_g, fat_target_g,
                         target_date, goal_type, warnings, requires_professional_review, is_active,
-                        dietary_restrictions
+                        dietary_restrictions, trajectory_json, plan_start_date
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
                         plan_id,
@@ -236,6 +248,8 @@ class DBManager:
                         json.dumps(plan.get("warnings", []), ensure_ascii=False),
                         bool(plan.get("requires_professional_review", False)),
                         json.dumps(plan.get("dietary_restrictions", []), ensure_ascii=False),
+                        trajectory_json,
+                        plan_start_date,
                     ),
                 )
             return plan_id

@@ -394,6 +394,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_dining.add_argument("args", nargs=argparse.REMAINDER,
                          help="Arguments forwarded to dining_advisor.py")
 
+    p_chart = sub.add_parser("chart", help="體重預測 vs 實際曲線（ASCII）")
+    p_chart.add_argument("args", nargs=argparse.REMAINDER,
+                        help="Arguments forwarded to weight_chart.py")
+
     return parser
 
 
@@ -474,6 +478,10 @@ def dispatch(argv: Sequence[str] | None = None) -> int:
     if command == "dining":
         from dining_advisor import main as dining_main  # noqa: PLC0415
         return dining_main(rest)
+
+    if command == "chart":
+        from weight_chart import main as chart_main  # noqa: PLC0415
+        return chart_main(rest)
 
     raise ValueError(f"unsupported command path: {command}")
 
