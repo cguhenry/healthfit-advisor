@@ -136,6 +136,7 @@ def get_cycle_phase(
     """
     today = today or date.today()
     days_since = (today - last_period_start).days
+    cycle_length = max(cycle_length, 1)  # guard against ZeroDivisionError
     cycle_day = (days_since % cycle_length) + 1
 
     # Map cycle day to phase

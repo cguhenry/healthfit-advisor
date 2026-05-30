@@ -36,6 +36,14 @@ tools:
   - name: weekly_report
     description: "產生每週飲食回顧與週評分。"
     entry: "python3 scripts/healthfit.py report weekly"
+  - name: weight_chart
+    description: "顯示體重預測曲線 vs 實際體重的 ASCII 折線圖，並給出超前/落後進度評估"
+    entry: "python3 scripts/healthfit.py chart"
+    input_schema:
+      properties:
+        weeks: { type: integer, default: 13 }
+        from_date: { type: string, description: "ISO date" }
+        to_date: { type: string, description: "ISO date" }
   - name: meal_plan
     description: "產生七天飲食計劃。"
     entry: "python3 scripts/healthfit.py plan"

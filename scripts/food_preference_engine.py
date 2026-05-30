@@ -343,7 +343,7 @@ def update_preference_after_log(
         # old_count (after increment) is only used as the new denominator.
         count_for_avg = previous_count if previous_count is not None else 0
         if old_avg is not None and count_for_avg > 0:
-            new_food_quality = (old_avg * count_for_avg + food_quality) / old_count
+            new_food_quality = (old_avg * count_for_avg + food_quality) / (old_count + 1)
         else:
             new_food_quality = food_quality
         db.execute(

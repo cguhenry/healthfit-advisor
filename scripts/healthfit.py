@@ -36,11 +36,12 @@ def _summary_date_from_timestamp(log_datetime: str | None) -> str:
 
 
 def _load_json_payload(path_or_dash: str) -> dict[str, Any]:
-    if path_or_dash == "-":
-        raw_text = sys.stdin.read()
-    else:
-        raw_text = Path(path_or_dash).read_text(encoding="utf-8")
-    payload = json.loads(raw_text)
+    raw_text = sys.stdin.read() if path_or_dash == "-" else Path(path_or_dash).read_text(encoding="utf-8")
+    stripped = raw_text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        stripped = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+    payload = json.loads(stripped)
     if not isinstance(payload, dict):
         raise ValueError("Phase 3 payload must be a JSON object.")
     return payload

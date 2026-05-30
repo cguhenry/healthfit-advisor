@@ -514,9 +514,9 @@ def _get_week_weight_change(
 
     end_of_week_row = db.fetch_one(
         """SELECT weight_kg FROM weight_logs
-           WHERE user_id = ? AND log_date <= ?
+           WHERE user_id = ? AND log_date >= ? AND log_date <= ?
            ORDER BY log_date DESC LIMIT 1""",
-        (user_id, we_str),
+        (user_id, ws_str, we_str),
     )
     start_of_week_row = db.fetch_one(
         """SELECT weight_kg FROM weight_logs

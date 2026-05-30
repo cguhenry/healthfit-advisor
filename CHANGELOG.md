@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.7 - 2026-05-30
+
+**6 個 Bug 修復**
+
+### Bug 修復
+
+**Bug 1 — `food_preference_engine.py` running average 除數錯誤**
+- 問題：`new_food_quality = (old_avg * count_for_avg + food_quality) / old_count` 分母用 `old_count` 而非 `old_count + 1`，導致前幾次記錄時分數被嚴重高估（第 2 次可能高達 150/100）
+- 修正：改為 `/ (old_count + 1)`
+
+**Bug 2 — `report_generator.py` 週體重變化本週無記錄時回傳錯誤值**
+- 問題：`end_of_week_row` 查詢只用 `log_date <= week_end`，若本週完全沒量體重，會錯誤找到上月同一筆記錄，兩個查詢結果相同導致回傳 `0.0`（週報顯示「無變化」而非「本週未記錄」）
+- 修正：`end_of_week_row` 加 `AND log_date >= week_start` 限制本週範圍；本週無記錄時回傳 `None`
+
+**Bug 3 — `menstrual_tracker.py` `cycle_length=0` 導致 ZeroDivisionError**
+- 問題：第 139 行 `cycle_day = (days_since % cycle_length) + 1`，`cycle_length=0` 時 `%` 運算子觸發除零錯誤
+- 修正：函式開頭加 `cycle_length = max(cycle_length, 1)` 防護
+
+**Bug 4 — `db_manager.py` transaction context manager**
+- 狀態：已確認自帶 `finally: conn.close()`，無需修改 ✅
+
+**Bug 5 — `healthfit.py` `_load_json_payload()` 無法處理 markdown JSON fence**
+- 問題：Agent 框架中 LLM 常把 JSON 包在 ` ```json ... ``` ` 裡，直接 `json.loads()` 失敗
+- 修正：加入 fence stripping 邏輯，先移除 markdown code-fence 再 parse
+
+**Bug 6 — `openai.yaml` 缺少 `weight_chart` action**
+- 問題：`scripts/healthfit.py chart` 已實作但 agent manifest 無對應 entry，無法路由
+- 修正：補上完整 `weight_chart` entry（含 `input_schema` 的 `weeks`、`from_date`、`to_date` 參數）
+
+---
+
 ## 0.9.6 - 2026-05-30
 
 **食品資料庫正式匯入系統 + 多項 Bug 修復**
