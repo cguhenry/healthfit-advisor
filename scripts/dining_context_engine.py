@@ -148,7 +148,8 @@ def recommend_from_menu_items(
 
     source_mode = items[0].source if items else "user_text"
 
-    AVOID_SCORE_THRESHOLD = 45
+    AVOID_SCORE_THRESHOLD = 50
+    CAUTION_SCORE_THRESHOLD = 65
     recommended = [s for s in scored if s.score >= AVOID_SCORE_THRESHOLD][:top_n]
     avoid = [s for s in sorted(scored, key=lambda x: x.score) if s.score < AVOID_SCORE_THRESHOLD][:top_n]
 
