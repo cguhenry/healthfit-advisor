@@ -293,7 +293,7 @@ def generate_weekly_report(
             else:
                 lines.append(f"  🔸 低於預期（預期 {weekly_change_expected:+.2f} kg）")
     else:
-        lines.append("  尚無體重記錄")
+        lines.append("  本週起始或期末體重不足，暫無法計算本週變化")
     lines.append("")
 
     # ── Weight trajectory chart ─────────────────────────────────────

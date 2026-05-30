@@ -191,6 +191,21 @@ agents/ 目前分為三份 manifest，避免不同平台共用一個名稱不清
 
     python3 scripts/plan_formatter.py result.json
 
+### Step 3：匯入食品營養資料庫（建議首次啟動時執行一次）
+
+```bash
+# 一站式匯入 TW_FDA（台灣，2181 種食物）+ USDA Foundation Foods（322 種）
+python scripts/bootstrap_food_db.py
+
+# 確認匯入狀態
+python scripts/food_db_status.py
+```
+
+匯入完成後，TW_FDA 為預設查詢來源（中文食物優先），USDA 為後備。
+
+> ⚠️ **不要用 `food_db_importer.py` 匯入 TW_FDA / USDA**，那個檔案只給一行一食品的 legacy CSV 用。
+> 如有疑慮，請參考 `SKILL.md` → `## Food DB Import` 專區。
+
 ## 常用操作
 
 ### 統一 CLI 入口
@@ -500,6 +515,10 @@ calorie_tracker.py 會透過 normalize_phase3_analysis_payload() 做正規化與
     python3 -m unittest -v tests.test_calorie_tracker
     python3 -m unittest -v tests.test_scoring_engine
     python3 -m unittest -v tests.test_report_generator
+
+若已執行過食品資料庫匯入，可用以下指令確認狀態：
+
+    python scripts/food_db_status.py
 
 ## 維護文件
 

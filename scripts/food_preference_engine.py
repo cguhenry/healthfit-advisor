@@ -469,7 +469,12 @@ def get_food_fingerprint(
         daily = r["avg_daily_score_when_eaten"]   # may be None
         fq    = r["avg_food_quality_score"]        # may be None
 
-        if strength >= MIN_TOTAL_FOR_CLASSIFICATION:
+        is_classifiable = (
+            total >= MIN_TOTAL_FOR_CLASSIFICATION
+            and (recent > 0 or strength >= MIN_TOTAL_FOR_CLASSIFICATION)
+        )
+
+        if is_classifiable:
             # Compute final dual‑track score; prefer quality if daily is missing
             if daily is not None and fq is not None:
                 final = daily * 0.6 + fq * 0.4

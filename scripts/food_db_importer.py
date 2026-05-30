@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
 """
-food_db_importer.py — Phase 6: Nutrition Database Importer.
+food_db_importer.py — Legacy Simple Flat-CSV Importer.
 
-Handles importing nutrition data from Taiwan Open Data and USDA FoodData Central.
-Stores data in the `food_nutrition_cache` table for fast local lookup.
+WARNING: This file is for legacy simple flat CSV format only.
+         DO NOT use this for TW_FDA or USDA official datasets.
+
+Formal food nutrition data should be imported using:
+    python scripts/food_db_import_pivot.py import-all \
+        --usda-dir assets/usda_food_db/foundation_foods_csv
+
+Why:
+- TW_FDA uses multi-row nutrient-pivot format (one food = many rows)
+- USDA FoodData Central uses multi-file relational schema
+
+This file is retained ONLY for importing legacy flat-CSV files
+where each row represents exactly one food item.
 """
 
 from __future__ import annotations
@@ -21,6 +32,15 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from db_manager import DBManager
+
+LEGACY_WARNING = (
+    "\n"
+    "WARNING: food_db_importer.py is a legacy flat-CSV importer.\n"
+    "For TW_FDA / USDA official datasets, use:\n"
+    "    python scripts/food_db_import_pivot.py import-all \\\n"
+    "        --usda-dir assets/usda_food_db/foundation_foods_csv\n"
+    "\n"
+)
 
 # ─────────────────────────────────────────────────────────────
 # Constants
@@ -146,13 +166,32 @@ class FoodDBImporter:
 # ─────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="HealthFit Food DB Importer")
+    # Always emit warning on CLI invocation
+    import sys
+    print(LEGACY_WARNING, file=sys.stderr)
+
+    parser = argparse.ArgumentParser(
+        description="HealthFit Legacy Flat-CSV Food DB Importer.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "\n"
+            "For official TW_FDA / USDA food data, use:\n"
+            "  python scripts/food_db_import_pivot.py import-all \\\n"
+            "    --usda-dir assets/usda_food_db/foundation_foods_csv\n"
+        ),
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_tw = sub.add_parser("import-tw", help="Import Taiwan food DB")
+    p_tw = sub.add_parser(
+        "import-tw",
+        help="[LEGACY] Import flat-CSV Taiwan food DB (one row = one food)",
+    )
     p_tw.add_argument("--file", help="Custom CSV path")
 
-    p_usda = sub.add_parser("import-usda", help="Import USDA food DB")
+    p_usda = sub.add_parser(
+        "import-usda",
+        help="[LEGACY] Import flat-CSV or JSON USDA food DB (one row = one food)",
+    )
     p_usda.add_argument("--file", help="Custom JSON path")
 
     p_clear = sub.add_parser("clear", help="Clear food cache")
@@ -168,6 +207,7 @@ def main() -> None:
         importer.import_usda_db(args.file)
     elif args.command == "clear":
         importer.clear_cache()
+
 
 if __name__ == "__main__":
     main()

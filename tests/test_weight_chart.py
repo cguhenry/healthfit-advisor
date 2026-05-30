@@ -92,9 +92,19 @@ class TestLoadTrajectory(unittest.TestCase):
         self.assertIsNone(wc_module._load_trajectory({"trajectory_json": "{}"}))
         self.assertIsNone(wc_module._load_trajectory({"trajectory_json": '{"a": 1}'}))
 
-    def test_mixed_invalid_values_returns_none(self):
-        self.assertIsNone(wc_module._load_trajectory({"trajectory_json": "[80.0, null]"}))
-        self.assertIsNone(wc_module._load_trajectory({"trajectory_json": "[80.0, 'bad']"}))
+    def test_mixed_invalid_values_returns_nan_list(self):
+        # Bad values are preserved as NaN (keeping positional alignment)
+        result = wc_module._load_trajectory({"trajectory_json": "[80.0, null]"})
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0], 80.0)
+        self.assertTrue(wc_module._is_nan(result[1]))  # null → NaN
+
+        # Valid JSON string, but non-numeric value → NaN in position
+        result2 = wc_module._load_trajectory({"trajectory_json": "[80.0, \"bad\"]"})
+        self.assertIsInstance(result2, list)
+        self.assertEqual(result2[0], 80.0)
+        self.assertTrue(wc_module._is_nan(result2[1]))  # "bad" → NaN)
 
     def test_empty_list_returns_none(self):
         self.assertIsNone(wc_module._load_trajectory({"trajectory_json": "[]"}))

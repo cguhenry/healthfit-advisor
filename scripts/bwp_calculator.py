@@ -30,6 +30,7 @@ class WeightPlan:
     warnings: List[str] = field(default_factory=list)
     adjusted: bool = False
     requires_professional_review: bool = False
+    trajectory: Optional[List[float]] = field(default=None, repr=False)
     methodology: str = (
         "Phase 1 approximation using Mifflin-St Jeor, PAL multipliers, and "
         "safety-constrained calorie planning. Not a full NIH dynamic solver."
@@ -38,6 +39,8 @@ class WeightPlan:
     def to_dict(self) -> Dict[str, object]:
         payload = asdict(self)
         payload["macros"] = asdict(self.macros)
+        if self.trajectory is not None:
+            payload["trajectory"] = self.trajectory
         return payload
 
 class BWPCalculator:
@@ -148,6 +151,18 @@ class BWPCalculator:
         plan.warnings = warnings
         plan.adjusted = adjusted
         plan.requires_professional_review = requires_professional_review
+        if plan.trajectory is None:
+            total_days = plan.target_weeks * 7
+            if total_days > 0:
+                plan.trajectory = [
+                    round(
+                        plan.current_weight_kg
+                        + (plan.goal_weight_kg - plan.current_weight_kg)
+                        * (i / total_days),
+                        3,
+                    )
+                    for i in range(total_days + 1)
+                ]
         return plan
 
     def generate_macro_targets(self, calories: int, goal_type: GoalType, weight_kg: float) -> MacroTargets:

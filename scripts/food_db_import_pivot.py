@@ -42,17 +42,22 @@ from db_manager import DBManager
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 TW_CSV = ASSETS_DIR / "tw_food_db" / "tw_food_db.csv"
 
-# Taiwan FDA nutrient mapping: 分析項 → DB column (per 100g)
-# 一般成分: Calories(熱量), Protein(粗蛋白), Fat(粗脂肪, 飽和脂肪),
-#           Carbs(總碳水化合物), Fiber(膳食纖維), Sodium(鈉)
+# Taiwan FDA nutrient mapping: (分析項分類, 分析項) → DB column (per 100g)
+# 支援「一般成分」和「礦物質」兩大類
 TW_NUTRIENT_MAP = {
-    "熱量": "calories_100g",
-    "修正熱量": "calories_100g",
-    "粗蛋白": "protein_100g",
-    "粗脂肪": "fat_100g",
-    "總碳水化合物": "carb_100g",
-    "膳食纖維": "fiber_100g",
-    "鈉": "sodium_100g",
+    ("一般成分", "熱量"):        "calories_100g",
+    ("一般成分", "修正熱量"):    "calories_100g",
+    ("一般成分", "粗蛋白"):       "protein_100g",
+    ("一般成分", "粗脂肪"):       "fat_100g",
+    ("一般成分", "總碳水化合物"): "carb_100g",
+    ("一般成分", "膳食纖維"):     "fiber_100g",
+    ("礦物質",   "鈉"):          "sodium_100g",
+    ("礦物質",   "鈣"):          "calcium_100g",
+    ("礦物質",   "鐵"):          "iron_100g",
+    ("礦物質",   "鉀"):          "potassium_100g",
+    ("礦物質",   "磷"):          "phosphorus_100g",
+    ("礦物質",   "鎂"):          "magnesium_100g",
+    ("礦物質",   "鋅"):          "zinc_100g",
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -100,13 +105,9 @@ def _read_tw_rows(file_path: Path) -> list[dict]:
             g["category"] = row[0].strip()  # 食品分類
 
             nutrient_class = row[8].strip()  # 分析項分類
-            nutrient_name = row[9].strip()   # 分析項
+            nutrient_name  = row[9].strip()   # 分析項
 
-            # Only extract "一般成分" nutrients
-            if nutrient_class != "一般成分":
-                continue
-
-            col_name = TW_NUTRIENT_MAP.get(nutrient_name)
+            col_name = TW_NUTRIENT_MAP.get((nutrient_class, nutrient_name))
             if not col_name:
                 continue
 
@@ -132,7 +133,7 @@ def _read_tw_rows(file_path: Path) -> list[dict]:
             "fat_100g": nutrients.get("fat_100g", 0.0),
             "carb_100g": nutrients.get("carb_100g", 0.0),
             "fiber_100g": nutrients.get("fiber_100g", 0.0),
-            "sodium_100g": nutrients.get("sodium_100g", 0.0),
+            "sodium_100g": nutrients.get("sodium_100g", 0.0) / 1000.0,  # mg → g
             "serving_size_g": 100.0,
         })
     return foods
@@ -148,41 +149,56 @@ def import_taiwan(db: DBManager, file_path: Optional[Path] = None) -> int:
     foods = _read_tw_rows(path)
     print(f"   Pivot 完成: {len(foods)} 種食物（from {path.stat().st_size // 1024 // 1024} MB）")
 
-    # Bulk insert
-    count = 0
-    for food in foods:
-        try:
-            db.execute(
-                """INSERT INTO food_nutrition_cache (
-                    source, food_id, food_name, food_name_en, category,
-                    calories_100g, protein_100g, fat_100g, carb_100g,
-                    fiber_100g, sodium_100g
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(source, food_id) DO UPDATE SET
-                    food_name = excluded.food_name,
-                    food_name_en = excluded.food_name_en,
-                    category = excluded.category,
-                    calories_100g = excluded.calories_100g,
-                    protein_100g = excluded.protein_100g,
-                    fat_100g = excluded.fat_100g,
-                    carb_100g = excluded.carb_100g,
-                    fiber_100g = excluded.fiber_100g,
-                    sodium_100g = excluded.sodium_100g""",
-                (
-                    food["source"], food["food_id"], food["food_name"],
-                    food["food_name_en"], food["category"],
-                    food["calories_100g"], food["protein_100g"],
-                    food["fat_100g"], food["carb_100g"],
-                    food["fiber_100g"], food["sodium_100g"],
-                ),
-            )
-            count += 1
-        except Exception as e:
-            print(f"   ⚠️ 跳過 {food['food_id']}: {e}")
-            continue
+    imported = 0
+    batch = []
+    BATCH_SIZE = 500
 
-    print(f"✅ 匯入完成: {count} 筆台灣食品資料")
-    return count
+    for food in foods:
+        batch.append((
+            food["source"], food["food_id"], food["food_name"],
+            food["food_name_en"], food["category"],
+            food["calories_100g"], food["protein_100g"],
+            food["fat_100g"], food["carb_100g"],
+            food["fiber_100g"], food["sodium_100g"],
+        ))
+
+        if len(batch) >= BATCH_SIZE:
+            _upsert_tw_batch(db, batch)
+            imported += len(batch)
+            print(f"   ... {imported} foods imported")
+            batch = []
+
+    if batch:
+        _upsert_tw_batch(db, batch)
+        imported += len(batch)
+
+    print(f"✅ 匯入完成: {imported} 筆台灣食品資料")
+    return imported
+
+
+def _upsert_tw_batch(db: DBManager, batch: list[tuple]) -> None:
+    """Bulk upsert a batch of TW_FDA foods inside a single transaction."""
+    with db.transaction() as conn:
+        conn.executemany(
+            """
+            INSERT INTO food_nutrition_cache (
+                source, food_id, food_name, food_name_en, category,
+                calories_100g, protein_100g, fat_100g, carb_100g,
+                fiber_100g, sodium_100g
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source, food_id) DO UPDATE SET
+                food_name      = excluded.food_name,
+                food_name_en   = excluded.food_name_en,
+                category       = excluded.category,
+                calories_100g  = excluded.calories_100g,
+                protein_100g   = excluded.protein_100g,
+                fat_100g       = excluded.fat_100g,
+                carb_100g      = excluded.carb_100g,
+                fiber_100g     = excluded.fiber_100g,
+                sodium_100g    = excluded.sodium_100g
+            """,
+            batch,
+        )
 
 
 # ─────────────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ class WeightChartData:
     goal_weight_kg: float
     plan_daily_target_kcal: int
     plan_label: str
+    goal_type: str = "loss"  # "loss" / "gain" / "maintain"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -82,7 +83,7 @@ def _load_trajectory(plan: dict) -> Optional[list[float]]:
         try:
             result.append(float(value))
         except (TypeError, ValueError):
-            return None
+            result.append(float("nan"))  # keep position; render handles NaN
     return result or None
 
 
@@ -207,6 +208,7 @@ def fetch_chart_data(
         goal_weight_kg=float(plan["goal_weight_kg"]),
         plan_daily_target_kcal=int(plan["daily_calorie_target"] or 0),
         plan_label=f"{plan_label}（{plan_start.isoformat()} 起）",
+        goal_type=goal_type,
     )
 
 
@@ -285,6 +287,8 @@ def render_ascii_chart(
             if grid[goal_row][c] == " ":
                 grid[goal_row][c] = "━"
 
+    # Y-axis label prefix width: f"{value:5.1f}" == 5 chars
+    Y_PREFIX = 5
     # Build output
     lines: list[str] = []
     lines.append(data.plan_label)
@@ -293,12 +297,12 @@ def render_ascii_chart(
         value_label = y_max - (r / max(height - 1, 1)) * (y_max - y_min)
         lines.append(f"{value_label:5.1f}│{''.join(row)}")
 
-    lines.append(" └" + "─" * width)
+    lines.append(" " * Y_PREFIX + "└" + "─" * width)
 
     if show_dates and data.dates:
         left = data.dates[0].strftime("%m/%d")
         right = data.dates[-1].strftime("%m/%d")
-        lines.append(f" {left}{' ' * max(width - len(left) - len(right), 1)}{right}")
+        lines.append(" " * (Y_PREFIX + 1) + left + " " * max(width - len(left) - len(right), 1) + right)
 
     lines.append("")
     lines.append(" · 預測曲線  ● 實際記錄  ━ 目標體重")
@@ -329,31 +333,47 @@ def _compute_progress_label(data: WeightChartData) -> str:
         return f" 📊 目前體重：{actual:.1f} kg"
 
     diff = actual - predicted_today
-    goal_is_lower = data.goal_weight_kg < data.predicted[0]  # weight-loss plan
 
-    # Find closest predicted point to actual
+    # Cap day_delta to avoid extreme values on very slow plans
     closest_idx = min(
         range(len(data.predicted)),
         key=lambda i: abs(data.predicted[i] - actual)
         if not _is_nan(data.predicted[i])
         else 9999,
     )
-    day_delta = closest_idx - idx
+    day_delta = min(abs(closest_idx - idx), len(data.predicted) // 2)
+
+    if data.goal_type == "maintain":
+        if abs(diff) < 0.5:
+            return (
+                f" 📊 進度：維持良好 ✅\n"
+                f" 目前體重：{actual:.1f} kg（目標 {data.goal_weight_kg:.1f} kg）"
+            )
+        elif diff > 0:
+            return (
+                f" 📊 體重偏高 +{diff:.1f} kg ⚠️\n"
+                f" 目前體重：{actual:.1f} kg（目標 {data.goal_weight_kg:.1f} kg）"
+            )
+        else:
+            return (
+                f" 📊 體重偏低 {diff:.1f} kg ⚠️\n"
+                f" 目前體重：{actual:.1f} kg（目標 {data.goal_weight_kg:.1f} kg）"
+            )
 
     if abs(diff) < 0.3:
         status = "如期進行 ✅"
-    elif goal_is_lower:
-        # For weight loss: lower actual than predicted = ahead
+    elif data.goal_type == "loss":
+        # lower actual than predicted = ahead for weight loss
         if actual < predicted_today:
-            status = f"超前約 {abs(day_delta)} 天 ✅"
+            status = f"超前約 {day_delta} 天 ✅"
         else:
-            status = f"落後約 {abs(day_delta)} 天 ⚠️"
-    else:
-        # For weight gain: higher actual than predicted = ahead
+            status = f"落後約 {day_delta} 天 ⚠️"
+    else:  # gain
+        # higher actual than predicted = ahead for weight gain
         if actual > predicted_today:
-            status = f"超前約 {abs(day_delta)} 天 ✅"
+            status = f"超前約 {day_delta} 天 ✅"
         else:
-            status = f"落後約 {abs(day_delta)} 天 ⚠️"
+            status = f"落後約 {day_delta} 天 ⚠️"
 
     return (
         f" 📊 進度：{status}\n"

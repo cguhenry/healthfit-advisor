@@ -1,5 +1,90 @@
 # Changelog
 
+## 0.9.6 - 2026-05-30
+
+**食品資料庫正式匯入系統 + 多項 Bug 修復**
+
+### 新增檔案
+- `scripts/bootstrap_food_db.py`：一站式食品營養資料庫啟動腳本，自動匯入 TW_FDA + USDA。
+  Agent 只需知道 `python scripts/bootstrap_food_db.py`
+- `scripts/food_db_status.py`：匯入後完整性 sanity check，顯示各來源筆數與營養素覆蓋率
+- `scripts/bootstrap_food_db.py`：見上方說明
+
+### 新增功能
+
+**Phase 7 正式食品資料庫匯入**
+- `food_db_import_pivot.py` 全面重寫：
+  - TW_FDA：支援 `(分析項分類, 分析項)` 二元 key 對應營養素欄位（不再只吃「一般成分」）
+  - 礦物質類（鈉、鈣、鐵、鉀、磷、鎂、鋅）完整匯入
+  - `mg → g` 單位轉換（鈉 5847mg → 5.847g）
+  - USDA：多檔關聯表 JOIN + pivot，foundation_foods_csv/ 全套支援
+  - Batch insert（每 500 筆一筆 transaction），22 萬列 CSV 匯入從 OOM 優化至正常完成
+- `food_db_importer.py` 改為 legacy 警示模式：
+  - 頂頭 WARNING 訊息（stderr），模組 docstring 清楚說明「這個檔案只支援一行一食品簡單 CSV」
+  - CLI help 全面標記 `[LEGACY]`，epilog 提示正確指令
+- `SKILL.md` 新增 `## Food DB Import` 專區，阻止 agent 未來再誤用舊工具
+
+**驗證結果**
+```
+source       total     cal    prot    carb     fat      Na  coverage
+TW_FDA        2181    2176    2097    1883    2021    2012   93.7%
+USDA           322     322     319     283     321     253   96.7%
+```
+
+**使用方式**
+```bash
+# 一次性啟動匯入（TW_FDA + USDA）
+python scripts/bootstrap_food_db.py
+
+# 分別匯入
+python scripts/food_db_import_pivot.py import-tw
+python scripts/food_db_import_pivot.py import-usda --usda-dir assets/usda_food_db/foundation_foods_csv
+
+# 確認匯入狀態
+python scripts/food_db_status.py
+```
+
+### Bug 修復
+
+**Bug 1 — Y 軸底線 `└` 偏左 4 格**
+- 原因：`f"{value:5.1f}│"` 格式前綴 5 字元，但 corner/date lines 只墊 1/0 格
+- 修正：定義 `Y_PREFIX = 5` 常數，`"└"` 前墊 `" " * Y_PREFIX`，date line 墊 `" " * (Y_PREFIX+1)`
+
+**Bug 2 — `WeightPlan.trajectory` 欄位缺失**
+- 原因：`trajectory` 欄位未在 dataclass 定義，導致 `_linear_trajectory()` 無法存取
+- 修正：`WeightPlan` 新增 `trajectory: Optional[List[float]] = field(default=None, repr=False)`
+  - `validate_plan_safety()` 未設定時產生線性 fallback（85 個時間點 / 12 週）
+  - `to_dict()` 只在非 None 時序列化
+
+**Bug 3 — maintain 計劃進度標籤錯誤**
+- 原因：`_compute_progress_label` 用 `goal_weight < predicted[0]` 判斷計劃類型，maintain 計劃兩者相等導致走「增肌」分支，把偏高說成超前
+- 修正：`WeightChartData` 新增 `goal_type: str` 欄位，直接傳入計劃類型，不再靠數值比較猜測
+
+**Bug 4 — `_load_trajectory` 遇到壞值回傳 None 導致整張圖消失**
+- 修正：壞值以 `math.nan` 取代（保留位置），index 2 的 `'oops'` → `nan`，長度不變
+
+**Bug 5 — `day_delta` 無合理上限**
+- 修正：`abs(diff) / abs(day_delta)` 上限設為 `len(predicted) // 2`（45 天），避免「超前 1000 天」等荒謬數值
+
+**Bug 6 — TW_FDA 鈉含量全為 0**
+- 原因：「礦物質/鈉」分類被 `if nutrient_class != "一般成分": continue` 整批忽略
+- 修正：營養素對應改為 `(分析項分類, 分析項)` 二元 key，鈉（以及鈣、鐵、鉀等礦物質）完整匯入
+
+### 其他改動
+
+**`SKILL.md`**：
+- 新增 `## Food DB Import` 專區（見上方說明）
+- `food_db_lookup.py` 說明加一行：bootstrap 入口為 `bootstrap_food_db.py`
+- `[LEGACY]` 標記 `menu_advisor.py`（保留給「一般菜單靈感」情境）
+
+**`report_generator.py`**：
+- 週報體重變化文字：「本週起始或期末體重不足，暫無法計算本週變化」取代「尚無體重記錄」
+
+**`food_preference_engine.py`**：
+- `get_food_fingerprint()` 修正 classifiability 判斷：同時有 recent > 0 或 strength >= MIN 的食物可分類，避免新接觸但穩定偏好的食物被排除
+
+---
+
 ## 0.9.5 - 2026-05-29
 
 **Feature G: ASCII 體重預測視覺化（weight_chart.py）**
