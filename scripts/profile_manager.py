@@ -27,8 +27,8 @@ class UserProfile:
         self.last_active = datetime.now(timezone.utc).isoformat()
 
 class ProfileManager:
-    def __init__(self, profile_path: Path = DEFAULT_PROFILE_PATH) -> None:
-        self.profile_path = profile_path.expanduser()
+    def __init__(self, profile_path: str | Path = DEFAULT_PROFILE_PATH) -> None:
+        self.profile_path = Path(profile_path).expanduser()
 
     def exists(self) -> bool:
         return self.profile_path.exists()

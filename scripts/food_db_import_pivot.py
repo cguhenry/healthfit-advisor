@@ -301,21 +301,26 @@ def _load_usda_foundation_ids(foundation_csv: _Path) -> set[int]:
 def _load_usda_foods(
     food_csv: _Path,
     foundation_ids: set[int] | None = None,
+    *,  # keyword-only
+    max_foods: int | None = None,
 ) -> dict[int, dict[str, Any]]:
     """
     Load food.csv rows.
 
     If foundation_ids is provided, only yield rows whose fdc_id appears in
     that set (strict Foundation Food filtering via foundation_food.csv).
-    Otherwise fall back to data_type == "foundation_food" for backward
-    compatibility with partial downloads that lack foundation_food.csv.
+    Otherwise fall back to data_type == "foundation_food".
+    Stops early once max_foods is reached (useful for sampling).
     """
     foundation_ids = foundation_ids or set()
 
     foods: dict[int, dict[str, Any]] = {}
+    count = 0
     with food_csv.open("r", encoding="utf-8-sig", newline="") as f:
         reader = _csv.DictReader(f)
         for row in reader:
+            if max_foods and count >= max_foods:
+                break
             fdc_id = _to_int(row.get("fdc_id"))
             if fdc_id is None:
                 continue
@@ -323,11 +328,9 @@ def _load_usda_foods(
             data_type = str(row.get("data_type") or "").lower()
 
             if foundation_ids:
-                # Strict: only accept fdc_ids listed in foundation_food.csv
                 if fdc_id not in foundation_ids:
                     continue
             else:
-                # Fallback for partial downloads
                 if data_type != "foundation_food":
                     continue
 
@@ -342,6 +345,7 @@ def _load_usda_foods(
                 "food_category_id": row.get("food_category_id"),
                 "publication_date": row.get("publication_date"),
             }
+            count += 1
 
     return foods
 
@@ -363,6 +367,8 @@ def _load_usda_nutrients(nutrient_csv: _Path) -> dict[int, dict[str, Any]]:
 def _pivot_usda_nutrients(
     food_nutrient_csv: _Path,
     valid_fdc_ids: set[int],
+    *,  # keyword-only
+    progress_every: int = 0,
 ) -> dict[int, dict[str, float]]:
     id_to_field: dict[int, str] = {}
     for field, ids in USDA_NUTRIENT_IDS.items():
@@ -370,10 +376,14 @@ def _pivot_usda_nutrients(
             id_to_field[nutrient_id] = field
 
     pivot: dict[int, dict[str, float]] = {}
+    row_count = 0
 
     with food_nutrient_csv.open("r", encoding="utf-8-sig", newline="") as f:
         reader = _csv.DictReader(f)
         for row in reader:
+            row_count += 1
+            if progress_every and row_count % progress_every == 0:
+                print(".", end="", flush=True)
             fdc_id      = _to_int(row.get("fdc_id"))
             nutrient_id = _to_int(row.get("nutrient_id"))
             amount      = _to_float(row.get("amount"))
@@ -392,7 +402,13 @@ def _pivot_usda_nutrients(
     return pivot
 
 
-def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -> int:
+def import_usda_foundation(
+    db: DBManager,
+    usda_dir: str | _Path | None = None,
+    *,  # force keyword args
+    max_foods: int | None = None,
+    progress_every: int = 0,
+) -> int:
     """
     Import USDA FoodData Central Foundation Foods CSV into food_nutrition_cache.
 
@@ -403,6 +419,10 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
 
     Optional:
         foundation_food.csv
+
+    Keyword args:
+        max_foods: cap import to N foods (None = unlimited)
+        progress_every: print a dot every N rows during pivot scan (0 = off)
     """
     usda_path = _resolve_usda_dir(usda_dir)
 
@@ -418,11 +438,13 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
         print("foundation_food.csv not found; falling back to data_type == foundation_food")
 
     print(f"Loading USDA foods from {food_csv}")
-    foods = _load_usda_foods(food_csv, foundation_ids)
+    foods = _load_usda_foods(food_csv, foundation_ids, max_foods=max_foods)
+    if max_foods:
+        print(f"   Limited to {max_foods} foods (--max-foods)")
     print(f"   Filtered to {len(foods)} foundation foods")
 
     print(f"Pivoting USDA food nutrients from {food_nutrient_csv}")
-    pivot = _pivot_usda_nutrients(food_nutrient_csv, set(foods.keys()))
+    pivot = _pivot_usda_nutrients(food_nutrient_csv, set(foods.keys()), progress_every=progress_every)
 
     imported = 0
     batch = []
@@ -459,14 +481,14 @@ def import_usda_foundation(db: DBManager, usda_dir: str | _Path | None = None) -
         if len(batch) >= BATCH_SIZE:
             _upsert_batch(db, batch)
             imported += len(batch)
-            print(f"   ... {imported} foods imported")
+            print(f"   ... {imported} foods imported", flush=True)
             batch = []
 
     if batch:
         _upsert_batch(db, batch)
         imported += len(batch)
 
-    print(f"USDA Foundation import complete: {imported} foods")
+    print(f"USDA Foundation import complete: {imported} foods", flush=True)
     return imported
 
 

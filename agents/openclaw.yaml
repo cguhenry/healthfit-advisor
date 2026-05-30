@@ -190,8 +190,37 @@ actions:
         no_db: { type: boolean, default: false }
         no_llm: { type: boolean, default: false }
 
+  - name: dining_advise
+    description: "外食推薦引擎：依據店家類型、今日剩餘熱量、蛋白質缺口、菜單 JSON 或常去店家資料，推薦較適合的餐點與點餐調整方式。"
+    entry: "python3 scripts/healthfit.py dining"
+    input_schema:
+      type: object
+      required: [scene]
+      properties:
+        scene:
+          type: string
+          enum:
+            - breakfast_shop
+            - bento_shop
+            - convenience_store
+            - bubble_tea
+            - luwei
+            - hotpot
+            - noodle_shop
+        user_id: { type: string }
+        db_path: { type: string }
+        remaining_calories:
+          type: number
+        protein_gap:
+          type: number
+        restaurant_name: { type: string }
+        menu_json: { type: string }
+        low_gi: { type: boolean, default: false }
+        llm_explain: { type: boolean, default: false }
+        top_n: { type: integer, default: 5 }
+
   - name: menu_suggest
-    description: "依照料理類型、用餐地點與熱量缺口推薦外食菜單。"
+    description: "[LEGACY] 一般菜單靈感建議。外食情境推薦請優先使用 dining_advise。"
     entry: "python3 scripts/healthfit.py menu"
     input_schema:
       type: object
