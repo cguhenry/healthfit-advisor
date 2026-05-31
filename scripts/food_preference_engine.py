@@ -304,15 +304,6 @@ def update_preference_after_log(
 
     daily_score = _get_daily_score(db, user_id, log_date)
 
-    # Pre-capture count BEFORE increment so Phase 2 uses the correct
-    # previous_count (not the already-incremented value).
-    pre_row = db.fetch_one(
-        """SELECT total_count FROM food_preference_profile
-              WHERE user_id = ? AND food_name = ?""",
-        (user_id, food_name),
-    )
-    previous_count = int(pre_row["total_count"] or 0) if pre_row else None
-
     # Phase 1: upsert a row with INSERT ON CONFLICT
     db.execute(
         """INSERT INTO food_preference_profile
@@ -327,9 +318,8 @@ def update_preference_after_log(
     )
 
     # ── Phase 2: rolling refresh ────────────────────────────────────────────
-    # Compute avg_food_quality_score as a simple rolling average:
-    #   new_avg = (old_avg * previous_count + new_score) / (previous_count + 1)
-    # Fetch current profile to get old avg + count before writing.
+    # avg = (old_avg * (old_count - 1) + new_score) / old_count
+    # old_count is already-incremented; (old_count - 1) is the count before this upsert.
     row = db.fetch_one(
         """SELECT total_count, avg_food_quality_score
              FROM food_preference_profile
@@ -339,11 +329,11 @@ def update_preference_after_log(
     if row and food_quality is not None:
         old_count = int(row["total_count"] or 0)
         old_avg   = row["avg_food_quality_score"]
-        # Use previous_count (captured before increment) for the rolling formula.
-        # old_count (after increment) is only used as the new denominator.
-        count_for_avg = previous_count if previous_count is not None else 0
-        if old_avg is not None and count_for_avg > 0:
-            new_food_quality = (old_avg * count_for_avg + food_quality) / (old_count + 1)
+        # avg = (old_avg * (old_count - 1) + new_score) / old_count
+        # old_count is already-incremented; (old_count - 1) is the count before this upsert.
+        previous_count = max(old_count - 1, 0)
+        if old_avg is not None and previous_count > 0:
+            new_food_quality = (old_avg * previous_count + food_quality) / old_count
         else:
             new_food_quality = food_quality
         db.execute(

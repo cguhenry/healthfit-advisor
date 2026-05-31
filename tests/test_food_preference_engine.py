@@ -244,6 +244,52 @@ class FoodPreferenceTestCase(unittest.TestCase):
         fp = get_food_fingerprint(self.db, self.user_id)
         self.assertIn("豆漿", fp["recent_14d"])
 
+    def test_food_quality_rolling_average_not_diluted(self) -> None:
+        """avg_food_quality_score must not be diluted by repeated same-quality logs."""
+        # Pre-seed nutrition so update_preference_after_log has a food_quality to work with
+        self.db.execute(
+            """INSERT INTO food_nutrition_cache
+               (source, food_id, food_name, calories_100g, protein_100g,
+                carb_100g, fat_100g, fiber_100g, sodium_100g)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("TW_FDA", "tw_chicken", "雞胸肉", 165, 31, 0, 3.6, 0, 74),
+        )
+
+        # First log — establishes baseline
+        self._insert_log("雞胸肉", "2026-05-01", score=80)
+        update_preference_after_log(self.db, self.user_id, "雞胸肉", "2026-05-01")
+        first = self.db.fetch_one(
+            '''SELECT avg_food_quality_score FROM food_preference_profile WHERE user_id=? AND food_name=?''',
+            (self.user_id, "雞胸肉"),
+        )
+        self.assertIsNotNone(first["avg_food_quality_score"])
+        first_score = first["avg_food_quality_score"]
+
+        # Second log — same food_quality, count goes 1→2
+        self._insert_log("雞胸肉", "2026-05-02", score=80)
+        update_preference_after_log(self.db, self.user_id, "雞胸肉", "2026-05-02")
+        second = self.db.fetch_one(
+            '''SELECT avg_food_quality_score FROM food_preference_profile WHERE user_id=? AND food_name=?''',
+            (self.user_id, "雞胸肉"),
+        )
+        self.assertIsNotNone(second["avg_food_quality_score"])
+        second_score = second["avg_food_quality_score"]
+
+        # Third log — count goes 2→3
+        self._insert_log("雞胸肉", "2026-05-03", score=80)
+        update_preference_after_log(self.db, self.user_id, "雞胸肉", "2026-05-03")
+        third = self.db.fetch_one(
+            '''SELECT avg_food_quality_score FROM food_preference_profile WHERE user_id=? AND food_name=?''',
+            (self.user_id, "雞胸肉"),
+        )
+        third_score = third["avg_food_quality_score"]
+
+        # Same quality score repeated → average must not be diluted toward 0
+        self.assertAlmostEqual(second_score, first_score, delta=0.1,
+            msg="avg should stay stable when same food_quality is logged repeatedly")
+        self.assertAlmostEqual(third_score, first_score, delta=0.1,
+            msg="avg should still be stable after 3rd log")
+
 
 if __name__ == "__main__":
     unittest.main()
