@@ -1,2 +1,5 @@
-# Optional dependencies (add as needed in later phases):
+# Required:
 requests>=2.31.0
+fpdf2>=2.7.0
+
+# Optional dependencies (add as needed in later phases):
