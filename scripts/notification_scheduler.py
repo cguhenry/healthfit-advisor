@@ -17,6 +17,7 @@ Environment variables:
     HEALTHFIT_PROFILE   — Profile JSON path (default: ~/.healthfit/profile.json)
     HEALTHFIT_DRY_RUN   — If set, print report instead of sending
     HEALTHFIT_CHANNELS  — Comma-separated channels: discord,line (default: discord)
+    HEALTHFIT_TIMEZONE  — IANA timezone for local date/week resolution
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 # Add scripts dir to path for imports
@@ -36,6 +37,7 @@ from scripts.db_manager import DBManager
 from scripts.report_generator import generate_daily_report, generate_weekly_report
 from scripts.scoring_engine import run_daily_scoring
 from scripts.calorie_tracker import get_calorie_progress, get_history_comparison
+from scripts.time_utils import get_healthfit_timezone_name, today_local
 
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
@@ -83,7 +85,7 @@ def build_daily_payload(user_id: str, db: DBManager, target_date: date | None = 
     Run daily scoring and generate the daily report text.
     Returns a dict with keys: report_text, score, grade, date.
     """
-    target_date = target_date or date.today()
+    target_date = target_date or today_local()
 
     # Run scoring pipeline to ensure fresh data
     try:
@@ -109,7 +111,7 @@ def build_weekly_payload(
     """
     if week_start is None:
         # Find Monday of this week
-        today = date.today()
+        today = today_local()
         week_start = today - timedelta(days=today.weekday())
 
     report = generate_weekly_report(db, user_id, week_start)
@@ -195,17 +197,11 @@ def deliver_prompt(payload: dict, channels: list[str]) -> None:
 def _deliver_discord(text: str, webhook_url: str | None = None) -> None:
     """Send report to Discord via webhook.
 
-    Falls back to printing when HEALTHFIT_DRY_RUN is set or
-    no DISCORD_WEBHOOK_URL is configured.
+    Raises a RuntimeError when credentials are missing or delivery fails.
     """
     webhook_url = webhook_url or os.environ.get("DISCORD_WEBHOOK_URL")
     if not webhook_url:
-        print(
-            "[discord] No DISCORD_WEBHOOK_URL set. "
-            f"Would send report ({len(text)} chars)",
-            flush=True,
-        )
-        return
+        raise RuntimeError("[discord] DISCORD_WEBHOOK_URL is required for Discord delivery.")
 
     try:
         import requests
@@ -214,24 +210,20 @@ def _deliver_discord(text: str, webhook_url: str | None = None) -> None:
         resp.raise_for_status()
         print(f"[discord] Sent report ({len(text)} chars)", flush=True)
     except Exception as e:
-        print(f"[discord] Failed to send: {e}", file=sys.stderr, flush=True)
+        raise RuntimeError(f"[discord] Failed to send report: {e}") from e
 
 
 def _deliver_line(text: str, channel_token: str | None = None) -> None:
     """Send report to LINE via LINE Messaging API.
 
-    Falls back to printing when HEALTHFIT_DRY_RUN is set or
-    no LINE_CHANNEL_ACCESS_TOKEN is configured.
+    Raises a RuntimeError when credentials are missing or delivery fails.
     """
     channel_token = channel_token or os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
     target = os.environ.get("LINE_REPORT_TARGET")
     if not channel_token or not target:
-        print(
-            "[line] LINE_CHANNEL_ACCESS_TOKEN or LINE_REPORT_TARGET not set. "
-            f"Would send report ({len(text)} chars)",
-            flush=True,
+        raise RuntimeError(
+            "[line] LINE_CHANNEL_ACCESS_TOKEN and LINE_REPORT_TARGET are required for LINE delivery."
         )
-        return
 
     try:
         import requests
@@ -250,7 +242,7 @@ def _deliver_line(text: str, channel_token: str | None = None) -> None:
         resp.raise_for_status()
         print(f"[line] Sent report ({len(text)} chars)", flush=True)
     except Exception as e:
-        print(f"[line] Failed to send: {e}", file=sys.stderr, flush=True)
+        raise RuntimeError(f"[line] Failed to send report: {e}") from e
 
 
 # ─────────────────────────────────────────────────────────────
@@ -269,13 +261,17 @@ def cmd_daily(args: argparse.Namespace) -> None:
     user_id = get_user_id(profile)
     db = get_db(db_path)
 
-    target = date.today()
+    target = today_local()
     payload = build_daily_payload(user_id, db, target)
 
     channels = args.channels or os.environ.get("HEALTHFIT_CHANNELS", "print").split(",")
     deliver_report(payload, channels)
 
-    print(f"\n[OK] Daily report generated for {payload['date']}", flush=True)
+    print(
+        f"\n[OK] Daily report generated for {payload['date']} "
+        f"(timezone={get_healthfit_timezone_name()})",
+        flush=True,
+    )
 
 
 def cmd_weekly(args: argparse.Namespace) -> None:
@@ -295,7 +291,11 @@ def cmd_weekly(args: argparse.Namespace) -> None:
     channels = args.channels or os.environ.get("HEALTHFIT_CHANNELS", "print").split(",")
     deliver_report(payload, channels)
 
-    print(f"\n[OK] Weekly report generated for week starting {payload['week_start']}", flush=True)
+    print(
+        f"\n[OK] Weekly report generated for week starting {payload['week_start']} "
+        f"(timezone={get_healthfit_timezone_name()})",
+        flush=True,
+    )
 
 
 def cmd_setup_cron(args: argparse.Namespace) -> None:
@@ -318,7 +318,7 @@ def cmd_test(args: argparse.Namespace) -> None:
     user_id = get_user_id(profile)
     db = get_db(db_path)
 
-    target = date.today()
+    target = today_local()
     payload = build_daily_payload(user_id, db, target)
     print(payload["report_text"])
     print(f"\n[TEST OK] Report generated for {payload['date']}")

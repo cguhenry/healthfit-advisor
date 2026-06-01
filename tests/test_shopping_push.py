@@ -226,12 +226,10 @@ class TestShoppingPushCron(unittest.TestCase):
 
 class TestWeekStartParsing(unittest.TestCase):
     def test_parse_next_returns_next_monday(self):
-        today = date.today()
-        days_until_monday = (7 - today.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7
-        expected = today + timedelta(days=days_until_monday)
-        result = _parse_week_start("next")
+        fake_today = date(2026, 6, 7)  # Sunday
+        expected = date(2026, 6, 8)
+        with unittest.mock.patch("scripts.shopping_push.today_local", return_value=fake_today):
+            result = _parse_week_start("next")
         self.assertEqual(result, expected, f"next should be {expected}, got {result}")
 
     def test_parse_iso_date(self):
@@ -239,12 +237,10 @@ class TestWeekStartParsing(unittest.TestCase):
         self.assertEqual(dt, date(2026, 6, 1))
 
     def test_parse_case_insensitive_next(self):
-        dt = _parse_week_start("NEXT")
-        today = date.today()
-        days_until_monday = (7 - today.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7
-        expected = today + timedelta(days=days_until_monday)
+        fake_today = date(2026, 6, 8)  # Monday
+        expected = date(2026, 6, 15)
+        with unittest.mock.patch("scripts.shopping_push.today_local", return_value=fake_today):
+            dt = _parse_week_start("NEXT")
         self.assertEqual(dt, expected)
 
 

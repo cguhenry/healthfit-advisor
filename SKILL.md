@@ -182,7 +182,8 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
   - `DISCORD_WEBHOOK_URL`
   - `LINE_CHANNEL_ACCESS_TOKEN`
   - `LINE_REPORT_TARGET`
-  - optional `HEALTHFIT_CHANNELS`, `HEALTHFIT_DRY_RUN`, `HEALTHFIT_DB_PATH`, `HEALTHFIT_PROFILE`
+  - optional `HEALTHFIT_CHANNELS`, `HEALTHFIT_DRY_RUN`, `HEALTHFIT_DB_PATH`, `HEALTHFIT_PROFILE`, `HEALTHFIT_TIMEZONE`
+- Scheduling/report date resolution follows `HEALTHFIT_TIMEZONE` (IANA name, default `Asia/Taipei`). Override it on UTC hosts only when you want a different local date/week boundary.
 - Missing notification credentials should fail explicitly at delivery time; the Phase 7 smoke test does not exercise external delivery.
 
 ## Phase 7 Boundaries

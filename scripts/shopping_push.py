@@ -25,6 +25,8 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+from time_utils import today_local
+
 DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB_PATH", Path("~/.healthfit/healthfit.db").expanduser()))
 
 # ─────────────────────────────────────────────────────────────
@@ -350,7 +352,7 @@ def export_shopping_pdf(shopping_list: dict[str, list[str]], week_start: date, o
 def _parse_week_start(raw: str) -> date:
     """Parse --week-start as ISO date or 'next' for next Monday."""
     if raw.lower() == "next":
-        today = date.today()
+        today = today_local()
         days_until_monday = (7 - today.weekday()) % 7
         if days_until_monday == 0:
             days_until_monday = 7  # if today is Monday, go to next Monday

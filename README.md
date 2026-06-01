@@ -65,12 +65,17 @@ projects/healthfit-advisor/ 只用來放內部開發進度與規劃備忘。
 
     pip install .[pdf]
 
+預設業務時區為台灣時間 (`Asia/Taipei`)。若你要覆寫成其他 IANA 時區，請設定：
+
+    export HEALTHFIT_TIMEZONE=Asia/Taipei
+
 ## 安裝方式
 
 ### 方式 A：當作本機 Python 專案使用
 
     git clone <your-github-url> healthfit-advisor
     cd healthfit-advisor
+    python3 -m pip install -r requirements.txt
     python3 -m unittest discover -s tests -v
 
 ### 方式 B：當作 OpenClaw skill 使用

@@ -23,6 +23,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 from db_manager import DBManager
 from report_generator import generate_daily_report, generate_weekly_report
 from notification_scheduler import deliver_report
+from time_utils import today_local
 
 # ─────────────────────────────────────────────────────────────
 # Shopping push schedule constants
@@ -51,7 +52,7 @@ def send_notification(user_id: str, message: str, channel: str, category: str) -
 
 def run_daily_notification(user_id: str, db: DBManager) -> None:
     """Generate and send daily report."""
-    today = date.today().isoformat()
+    today = today_local().isoformat()
     
     # 1. Generate Report
     try:
@@ -84,7 +85,7 @@ def run_weekly_notification(user_id: str, db: DBManager) -> None:
     """Generate and send weekly report."""
     # Weekly report is usually sent on Sunday for the past 7 days
     # Week start = last Monday
-    today = date.today()
+    today = today_local()
     week_start = (today - timedelta(days=today.weekday())).isoformat()
     
     try:
@@ -114,7 +115,7 @@ def run_shopping_push(user_id: str, db: DBManager, week_start_date: Optional[dat
     """Generate next week's meal plan + shopping list and push to channels."""
     from shopping_push import run_weekly_shopping_push
 
-    now = date.today()
+    now = today_local()
     if week_start_date is None:
         # Next Monday
         days_until_monday = (7 - now.weekday()) % 7
