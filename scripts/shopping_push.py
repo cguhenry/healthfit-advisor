@@ -257,7 +257,11 @@ def export_shopping_pdf(shopping_list: dict[str, list[str]], week_start: date, o
     try:
         from fpdf import FPDF
     except ImportError:
-        print("ERROR: fpdf2 not installed. Run: pip install fpdf2", file=sys.stderr)
+        print(
+            "ERROR: PDF export requires optional dependency fpdf2. "
+            "Run: pip install -r requirements-pdf.txt or pip install .[pdf]",
+            file=sys.stderr,
+        )
         return
 
     font_path = _find_cjk_font()

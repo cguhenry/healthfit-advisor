@@ -83,6 +83,8 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
+這會安裝 **正式營運預設需要的 core 依賴**。
+
 ### PDF 可選依賴
 
 `fpdf2` 是 **可選依賴**，不是 core install 的一部分。
@@ -90,10 +92,22 @@ python3 -m pip install -r requirements.txt
 - 如果你只需要文字、ASCII chart、日報、週報：不需要它
 - 如果你要 `meal_planner.py --pdf` 之類的 PDF 輸出：需要它
 
-安裝方式：
+安裝方式有兩種，擇一即可：
+
+```bash
+python3 -m pip install -r requirements-pdf.txt
+```
+
+或：
 
 ```bash
 python3 -m pip install "fpdf2>=2.7"
+```
+
+若你是用 package metadata 安裝，也可以：
+
+```bash
+python3 -m pip install ".[pdf]"
 ```
 
 另外若要正常輸出中文 PDF，還需要可讀取的 CJK 字型，例如 `Noto CJK` 或 `WenQuanYi Zen Hei`。
@@ -302,7 +316,7 @@ python3 scripts/healthfit.py chart --user-id <user_id> --weeks 12
 
 - Skill 目錄已放對
 - `python3 -m pip install -r requirements.txt` 已完成
-- 若需要 PDF，已額外安裝 `fpdf2>=2.7`
+- 若需要 PDF，已額外安裝 `python3 -m pip install -r requirements-pdf.txt` 或 `python3 -m pip install ".[pdf]"`
 - 已完成 intake，`~/.healthfit/profile.json` 與 `~/.healthfit/healthfit.db` 已建立
 - 若要外部通知，delivery env 已設好
 - 已至少做一次 dry-run smoke test

@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Optional PDF export support for meal plans / shopping lists.
+fpdf2>=2.7

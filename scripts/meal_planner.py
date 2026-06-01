@@ -908,7 +908,11 @@ def export_plan_pdf(plan: dict, output_path: str | Path) -> None:
     try:
         from fpdf import FPDF
     except ImportError:
-        print("ERROR: fpdf2 not installed. Run: pip install fpdf2", file=sys.stderr)
+        print(
+            "ERROR: PDF export requires optional dependency fpdf2. "
+            "Run: pip install -r requirements-pdf.txt or pip install .[pdf]",
+            file=sys.stderr,
+        )
         return
 
     pdf = FPDF()
