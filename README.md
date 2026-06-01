@@ -162,21 +162,33 @@ python3 scripts/healthfit.py ...
 
 ### 核心原則
 
+skill 模式下，最穩的設定順序是：
+
+1. **OpenClaw service / container env**
+2. `/home/node/.openclaw/openclaw.json` 的 channel 設定
+3. 臨時 shell `export`
+
 目前程式碼 **會讀環境變數，但不會自動讀 `.env` 檔**。
 
-所以如果你想把設定「存成 env」，有三種常見做法：
+所以如果你想把設定「存成 env」，建議放在真正的啟動層：
 
-- 在 OpenClaw / Docker service 的 `environment:` 設定
-- 在 shell / wrapper script 先 `export`
-- 在 cron 腳本前段 `export`
+- OpenClaw / Docker service 的 `environment:`
+- shell / wrapper script 的 `export`
+- cron 腳本前段的 `export`
 
-這部分 **不需要改程式碼**；程式本身已經會讀 env。你要做的是把 env 放到真正的啟動層，而不是只存在某個沒被 source 的檔案裡。
+對 `notification_scheduler.py` 來說：
+
+- `LINE` 送訊若沒設 env，會 fallback 讀 `/home/node/.openclaw/openclaw.json`
+- `Discord` 若沒設 `DISCORD_WEBHOOK_URL`，會嘗試用 `openclaw.json` 內的 bot token + allowFrom 做 DM fallback
+
+也就是說，**如果 OpenClaw 的 Discord / LINE 本來就已經配好，HealthFit 多半不需要再維護第二份 delivery secret**。
 
 ### 通知相關
 
 若要真的送外部通知：
 
 - `DISCORD_WEBHOOK_URL`
+- `DISCORD_REPORT_TARGET`
 - `LINE_CHANNEL_ACCESS_TOKEN`
 - `LINE_REPORT_TARGET`
 

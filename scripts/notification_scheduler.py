@@ -27,6 +27,7 @@ import json
 import os
 import sys
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 
 # Add scripts dir to path for imports
@@ -42,6 +43,7 @@ from scripts.time_utils import get_healthfit_timezone_name, today_local
 
 DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
 DEFAULT_PROFILE_PATH = Path("~/.healthfit/profile.json").expanduser()
+DEFAULT_OPENCLAW_CONFIG_PATH = Path("/home/node/.openclaw/openclaw.json")
 CRON_LINE = (
     "# HealthFit AI — lunch check-in at 13:00\n"
     "0 13 * * * "
@@ -74,6 +76,56 @@ def get_db(db_path: Path) -> DBManager:
 def get_user_id(profile: dict) -> str:
     """Extract user_id from profile."""
     return profile.get("user_id") or profile.get("user", {}).get("user_id", "")
+
+
+@lru_cache(maxsize=1)
+def load_openclaw_config(config_path: Path = DEFAULT_OPENCLAW_CONFIG_PATH) -> dict:
+    """Load OpenClaw config when available for delivery fallbacks."""
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _first_string(items: object) -> str | None:
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if isinstance(item, str) and item.strip():
+            return item.strip()
+    return None
+
+
+def resolve_line_delivery_config() -> tuple[str | None, str | None]:
+    """Resolve LINE credentials from env first, then OpenClaw channel config."""
+    token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
+    target = os.environ.get("LINE_REPORT_TARGET")
+
+    if token and target:
+        return token, target
+
+    line_cfg = load_openclaw_config().get("channels", {}).get("line", {})
+    token = token or line_cfg.get("channelAccessToken")
+    target = target or _first_string(line_cfg.get("allowFrom"))
+    return token, target
+
+
+def resolve_discord_delivery_config() -> tuple[str | None, str | None, str | None]:
+    """Resolve Discord delivery config from env first, then OpenClaw channel config."""
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    bot_token = os.environ.get("DISCORD_BOT_TOKEN")
+    target = os.environ.get("DISCORD_REPORT_TARGET")
+
+    if webhook_url:
+        return webhook_url, bot_token, target
+
+    discord_cfg = load_openclaw_config().get("channels", {}).get("discord", {})
+    bot_token = bot_token or discord_cfg.get("token")
+    target = target or _first_string(discord_cfg.get("allowFrom"))
+    return webhook_url, bot_token, target
 
 
 # ─────────────────────────────────────────────────────────────
@@ -199,16 +251,43 @@ def _deliver_discord(text: str, webhook_url: str | None = None) -> None:
 
     Raises a RuntimeError when credentials are missing or delivery fails.
     """
-    webhook_url = webhook_url or os.environ.get("DISCORD_WEBHOOK_URL")
-    if not webhook_url:
-        raise RuntimeError("[discord] DISCORD_WEBHOOK_URL is required for Discord delivery.")
+    webhook_url, bot_token, target = resolve_discord_delivery_config()
+    if not webhook_url and not (bot_token and target):
+        raise RuntimeError(
+            "[discord] Configure DISCORD_WEBHOOK_URL, or provide DISCORD_BOT_TOKEN + "
+            "DISCORD_REPORT_TARGET, or enable Discord in /home/node/.openclaw/openclaw.json."
+        )
 
     try:
         import requests
-        payload = {"content": text[:2000]}  # Discord 2000-char limit per message
-        resp = requests.post(webhook_url, json=payload, timeout=10)
-        resp.raise_for_status()
-        print(f"[discord] Sent report ({len(text)} chars)", flush=True)
+        if webhook_url:
+            payload = {"content": text[:2000]}  # Discord 2000-char limit per message
+            resp = requests.post(webhook_url, json=payload, timeout=10)
+            resp.raise_for_status()
+            print(f"[discord] Sent report via webhook ({len(text)} chars)", flush=True)
+            return
+
+        assert bot_token is not None and target is not None
+        headers = {
+            "Authorization": f"Bot {bot_token}",
+            "Content-Type": "application/json",
+        }
+        dm_resp = requests.post(
+            "https://discord.com/api/v10/users/@me/channels",
+            headers=headers,
+            json={"recipient_id": target},
+            timeout=10,
+        )
+        dm_resp.raise_for_status()
+        channel_id = dm_resp.json()["id"]
+        msg_resp = requests.post(
+            f"https://discord.com/api/v10/channels/{channel_id}/messages",
+            headers=headers,
+            json={"content": text[:2000]},
+            timeout=10,
+        )
+        msg_resp.raise_for_status()
+        print(f"[discord] Sent report via bot DM ({len(text)} chars)", flush=True)
     except Exception as e:
         raise RuntimeError(f"[discord] Failed to send report: {e}") from e
 
@@ -218,11 +297,11 @@ def _deliver_line(text: str, channel_token: str | None = None) -> None:
 
     Raises a RuntimeError when credentials are missing or delivery fails.
     """
-    channel_token = channel_token or os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
-    target = os.environ.get("LINE_REPORT_TARGET")
+    channel_token, target = resolve_line_delivery_config()
     if not channel_token or not target:
         raise RuntimeError(
-            "[line] LINE_CHANNEL_ACCESS_TOKEN and LINE_REPORT_TARGET are required for LINE delivery."
+            "[line] Configure LINE_CHANNEL_ACCESS_TOKEN and LINE_REPORT_TARGET, "
+            "or enable LINE in /home/node/.openclaw/openclaw.json."
         )
 
     try:

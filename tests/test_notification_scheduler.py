@@ -22,6 +22,8 @@ from scripts.notification_scheduler import (
     _deliver_line,
     build_checkin_payload,
     build_daily_payload,
+    resolve_discord_delivery_config,
+    resolve_line_delivery_config,
 )
 
 
@@ -46,13 +48,16 @@ class TestNotificationScheduler(unittest.TestCase):
 
     def test_discord_delivery_requires_webhook(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "DISCORD_WEBHOOK_URL"):
-                _deliver_discord("hello")
+            with mock.patch("scripts.notification_scheduler.load_openclaw_config", return_value={}):
+                with self.assertRaisesRegex(RuntimeError, "DISCORD_WEBHOOK_URL"):
+                    _deliver_discord("hello")
 
     def test_line_delivery_requires_token_and_target(self):
         with mock.patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(RuntimeError, "LINE_CHANNEL_ACCESS_TOKEN"):
-                _deliver_line("hello")
+            notification_scheduler.load_openclaw_config.cache_clear()
+            with mock.patch("scripts.notification_scheduler.load_openclaw_config", return_value={}):
+                with self.assertRaisesRegex(RuntimeError, "LINE_CHANNEL_ACCESS_TOKEN"):
+                    _deliver_line("hello")
 
     def test_build_daily_payload_uses_configured_timezone_for_default_date(self):
         fake_today = date(2026, 6, 2)
@@ -72,6 +77,64 @@ class TestNotificationScheduler(unittest.TestCase):
                     notification_scheduler.main()
 
         self.assertEqual(exc.exception.code, 0)
+
+    def test_resolve_line_delivery_config_falls_back_to_openclaw(self):
+        notification_scheduler.load_openclaw_config.cache_clear()
+        fake_cfg = {
+            "channels": {
+                "line": {
+                    "channelAccessToken": "line-token",
+                    "allowFrom": ["user-123"],
+                }
+            }
+        }
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("scripts.notification_scheduler.load_openclaw_config", return_value=fake_cfg):
+                token, target = resolve_line_delivery_config()
+
+        self.assertEqual(token, "line-token")
+        self.assertEqual(target, "user-123")
+
+    def test_resolve_discord_delivery_config_falls_back_to_openclaw(self):
+        notification_scheduler.load_openclaw_config.cache_clear()
+        fake_cfg = {
+            "channels": {
+                "discord": {
+                    "token": "discord-bot-token",
+                    "allowFrom": ["768728802070626334"],
+                }
+            }
+        }
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("scripts.notification_scheduler.load_openclaw_config", return_value=fake_cfg):
+                webhook_url, bot_token, target = resolve_discord_delivery_config()
+
+        self.assertIsNone(webhook_url)
+        self.assertEqual(bot_token, "discord-bot-token")
+        self.assertEqual(target, "768728802070626334")
+
+    def test_discord_delivery_can_use_bot_dm_fallback(self):
+        fake_cfg = {
+            "channels": {
+                "discord": {
+                    "token": "discord-bot-token",
+                    "allowFrom": ["768728802070626334"],
+                }
+            }
+        }
+
+        dm_response = mock.Mock()
+        dm_response.raise_for_status.return_value = None
+        dm_response.json.return_value = {"id": "dm-channel-id"}
+        msg_response = mock.Mock()
+        msg_response.raise_for_status.return_value = None
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("scripts.notification_scheduler.load_openclaw_config", return_value=fake_cfg):
+                with mock.patch("requests.post", side_effect=[dm_response, msg_response]) as post_mock:
+                    _deliver_discord("hello from healthfit")
+
+        self.assertEqual(post_mock.call_count, 2)
 
 
 if __name__ == "__main__":
