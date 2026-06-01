@@ -7,6 +7,7 @@ import os
 import sys
 import unittest
 from datetime import date
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
@@ -15,6 +16,7 @@ _SKILL_DIR = _SCRIPT_DIR.parent
 sys.path.insert(0, str(_SKILL_DIR))
 sys.path.insert(0, str(_SKILL_DIR / "scripts"))
 
+from scripts import notification_scheduler
 from scripts.notification_scheduler import (
     _deliver_discord,
     _deliver_line,
@@ -62,6 +64,14 @@ class TestNotificationScheduler(unittest.TestCase):
 
         self.assertEqual(payload["date"], "2026-06-02")
         scoring_mock.assert_called_once()
+
+    def test_main_checkin_help_parses_cleanly(self):
+        with mock.patch.object(sys, "argv", ["notification_scheduler.py", "checkin", "--help"]):
+            with mock.patch("sys.stdout", new_callable=StringIO):
+                with self.assertRaises(SystemExit) as exc:
+                    notification_scheduler.main()
+
+        self.assertEqual(exc.exception.code, 0)
 
 
 if __name__ == "__main__":

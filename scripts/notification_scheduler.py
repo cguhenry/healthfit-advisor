@@ -348,13 +348,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(prog="notification_scheduler.py")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("daily", help="Generate and deliver today's daily report") \
-        .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
-    sub.add_parser("weekly", help="Generate and deliver this week's report") \
-        .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
-    sub.add_parser("checkin", help="Generate and deliver a daily meal check-in prompt") \
-        .add_argument("--meal-type", choices=["breakfast", "lunch", "dinner", "snack"], default="lunch") \
-        .add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
+    daily_parser = sub.add_parser("daily", help="Generate and deliver today's daily report")
+    daily_parser.add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
+
+    weekly_parser = sub.add_parser("weekly", help="Generate and deliver this week's report")
+    weekly_parser.add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
+
+    checkin_parser = sub.add_parser("checkin", help="Generate and deliver a daily meal check-in prompt")
+    checkin_parser.add_argument("--meal-type", choices=["breakfast", "lunch", "dinner", "snack"], default="lunch")
+    checkin_parser.add_argument("-c", "--channels", nargs="+", help="Channels: discord line print")
+
     sub.add_parser("setup-cron", help="Print cron entry to stdout")
     sub.add_parser("test", help="Smoke test: generate and print today's report")
 
