@@ -230,7 +230,7 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
     raw = answer_text.strip()
     if not raw:
         return []
-    if any(token in raw for token in ("沒吃", "没吃", "還沒吃", "skip", "不吃")):
+    if any(token in raw for token in ("沒吃", "没吃", "沒有吃", "還沒吃", "還沒有吃", "未吃", "skip", "不吃")):
         return []
 
     normalized = raw
@@ -290,7 +290,7 @@ def process_checkin_response(
 
     # --- Skip / no-eat detection ---
     if not foods:
-        skip_tokens = ("沒吃", "没吃", "還沒吃", "不吃", "skip", "還沒", "都沒吃")
+        skip_tokens = ("沒吃", "没吃", "沒有吃", "還沒吃", "還沒有吃", "未吃", "不吃", "skip", "還沒", "都沒吃")
         if any(t in answer_text for t in skip_tokens):
             db = DBManager(Path(db_path))
             ts = log_datetime or datetime.now().isoformat()

@@ -224,6 +224,41 @@ class TestDialogueFlow(unittest.TestCase):
         finally:
             os.unlink(tmp_db.name)
 
+    def test_checkin_records_skipped_meal_for_meiyou_phrase(self):
+        """Natural '沒有吃' phrasing must also write a ___SKIPPED___ placeholder row."""
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "今天晚上太忙，所以我沒有吃晚餐",
+                user_id="u1",
+                meal_type="dinner",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "skipped")
+            row = db.fetch_one(
+                "SELECT food_name, calories, food_db_source FROM food_logs WHERE user_id = ?",
+                ("u1",),
+            )
+            self.assertEqual(row["food_name"], "___SKIPPED___")
+            self.assertEqual(row["calories"], 0)
+            self.assertEqual(row["food_db_source"], "SKIP")
+        finally:
+            os.unlink(tmp_db.name)
+
     def test_checkin_enriches_calories_from_db(self):
         """B1: process_checkin_response must look up calories from DB; total_calories must be > 0."""
         tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
