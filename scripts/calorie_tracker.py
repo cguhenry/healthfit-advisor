@@ -29,6 +29,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 from data_quality import quick_quality_label_from_source  # noqa: PLC0415
+from time_utils import group_rows_by_local_date, today_local
 
 PHASE3_TOP_LEVEL_ALIASES = {
     "foods": ("foods", "consumed_foods"),
@@ -313,15 +314,44 @@ def _log_food_by_date(
     db: DBManager, user_id: str, log_date: str
 ) -> List[Dict[str, Any]]:
     """Return raw food_log rows for a given date (excluding ___MEAL_TOTAL___ rows)."""
-    with closing(db.connect()) as conn:
-        rows = conn.execute(
-            """SELECT * FROM food_logs
-               WHERE user_id = ? AND date(log_datetime) = ?
-                 AND food_name != '___MEAL_TOTAL___'
-               ORDER BY log_datetime""",
-            (user_id, log_date),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    rows_by_date = _load_food_rows_by_local_date(db, user_id)
+    return rows_by_date.get(log_date, [])
+
+
+def _load_food_rows_by_local_date(
+    db: DBManager,
+    user_id: str,
+    *,
+    include_meal_total: bool = False,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Load a user's food logs and bucket them by configured-local date."""
+    sql = """SELECT * FROM food_logs WHERE user_id = ?"""
+    params: tuple[Any, ...] = (user_id,)
+    if not include_meal_total:
+        sql += " AND food_name != '___MEAL_TOTAL___'"
+    sql += " ORDER BY log_datetime"
+    rows = db.fetchall(sql, params)
+    return group_rows_by_local_date((dict(row) for row in rows))
+
+
+def _aggregate_food_rows(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    """Aggregate calories/macros from already date-filtered food_log rows."""
+    totals = {
+        "total_calories": 0.0,
+        "total_protein_g": 0.0,
+        "total_carb_g": 0.0,
+        "total_fat_g": 0.0,
+        "total_fiber_g": 0.0,
+        "total_sodium_mg": 0.0,
+    }
+    for row in rows:
+        totals["total_calories"] += float(row.get("calories") or 0.0)
+        totals["total_protein_g"] += float(row.get("protein_g") or 0.0)
+        totals["total_carb_g"] += float(row.get("carb_g") or 0.0)
+        totals["total_fat_g"] += float(row.get("fat_g") or 0.0)
+        totals["total_fiber_g"] += float(row.get("fiber_g") or 0.0)
+        totals["total_sodium_mg"] += float(row.get("sodium_mg") or 0.0)
+    return totals
 
 
 # ---------------------------------------------------------------------------
@@ -341,26 +371,13 @@ def upsert_daily_summary(
     Returns the computed DailySummary.
     """
     db.initialize()
-    sd = summary_date or date.today().isoformat()
+    sd = summary_date or today_local().isoformat()
+    totals = _aggregate_food_rows(_load_food_rows_by_local_date(db, user_id).get(sd, []))
 
-    # Aggregate from food_logs (exclude ___MEAL_TOTAL___ to avoid double-counting)
-    row = db.fetch_one(
-        """SELECT
-             COALESCE(SUM(calories), 0)      AS total_calories,
-             COALESCE(SUM(protein_g), 0)     AS total_protein_g,
-             COALESCE(SUM(carb_g), 0)        AS total_carb_g,
-             COALESCE(SUM(fat_g), 0)         AS total_fat_g
-           FROM food_logs
-           WHERE user_id = ? AND date(log_datetime) = ?
-             AND food_name != '___MEAL_TOTAL___'""",
-        (user_id, sd),
-    )
-    totals = dict(row) if row else {}
-
-    total_cal = float(totals.get("total_calories") or 0.0)
-    total_prot = float(totals.get("total_protein_g") or 0.0)
-    total_carb = float(totals.get("total_carb_g") or 0.0)
-    total_fat = float(totals.get("total_fat_g") or 0.0)
+    total_cal = float(totals["total_calories"])
+    total_prot = float(totals["total_protein_g"])
+    total_carb = float(totals["total_carb_g"])
+    total_fat = float(totals["total_fat_g"])
     balance = total_cal - calorie_target
 
     # Upsert
@@ -405,7 +422,7 @@ def get_daily_summary(
     db: DBManager, user_id: str, summary_date: Optional[str] = None
 ) -> Optional[DailySummary]:
     """Read a daily_summaries row; returns None if not found."""
-    sd = summary_date or date.today().isoformat()
+    sd = summary_date or today_local().isoformat()
     row = db.fetch_one(
         "SELECT * FROM daily_summaries WHERE user_id = ? AND summary_date = ?",
         (user_id, sd),
@@ -448,46 +465,40 @@ def get_history_comparison(
     Each comparison includes the current and previous period totals + deltas.
     """
     db.initialize()
-    td = today or date.today()
+    td = today or today_local()
     comparisons: List[PeriodComparison] = []
+    rows_by_date = _load_food_rows_by_local_date(db, user_id)
 
     # ── Helper: get daily totals by querying food_logs directly ───
     def _daily_totals(d: date) -> Dict[str, Any]:
         ds = d.isoformat()
-        row = db.fetch_one(
-            """SELECT
-                 COALESCE(SUM(calories), 0)    AS calories,
-                 COALESCE(SUM(protein_g), 0)   AS protein_g,
-                 COALESCE(SUM(carb_g), 0)      AS carb_g,
-                 COALESCE(SUM(fat_g), 0)       AS fat_g,
-                 COUNT(*)                       AS items
-               FROM food_logs
-               WHERE user_id = ? AND date(log_datetime) = ?
-                 AND food_name != '___MEAL_TOTAL___'""",
-            (user_id, ds),
-        )
-        return dict(row) if row else {"calories": 0, "protein_g": 0, "carb_g": 0, "fat_g": 0, "items": 0}
+        rows = rows_by_date.get(ds, [])
+        totals = _aggregate_food_rows(rows)
+        return {
+            "calories": round(totals["total_calories"], 1),
+            "protein_g": round(totals["total_protein_g"], 1),
+            "carb_g": round(totals["total_carb_g"], 1),
+            "fat_g": round(totals["total_fat_g"], 1),
+            "items": len(rows),
+        }
 
     def _period_totals(start: date, end: date) -> Dict[str, Any]:
-        row = db.fetch_one(
-            """SELECT
-                 COALESCE(SUM(calories), 0)    AS calories,
-                 COALESCE(SUM(protein_g), 0)   AS protein_g,
-                 COALESCE(SUM(carb_g), 0)      AS carb_g,
-                 COALESCE(SUM(fat_g), 0)       AS fat_g,
-                 COUNT(DISTINCT date(log_datetime)) AS days
-               FROM food_logs
-               WHERE user_id = ? AND date(log_datetime) BETWEEN ? AND ?
-                 AND food_name != '___MEAL_TOTAL___'""",
-            (user_id, start.isoformat(), end.isoformat()),
-        )
-        r = dict(row) if row else {}
-        days = max(int(r.get("days") or 0), 1)
+        period_rows: List[Dict[str, Any]] = []
+        active_days = 0
+        current = start
+        while current <= end:
+            day_rows = rows_by_date.get(current.isoformat(), [])
+            if day_rows:
+                active_days += 1
+                period_rows.extend(day_rows)
+            current += timedelta(days=1)
+        totals = _aggregate_food_rows(period_rows)
+        days = max(active_days, 1)
         return {
-            "calories": round(float(r.get("calories") or 0) / days, 1),
-            "protein_g": round(float(r.get("protein_g") or 0) / days, 1),
-            "carb_g": round(float(r.get("carb_g") or 0) / days, 1),
-            "fat_g": round(float(r.get("fat_g") or 0) / days, 1),
+            "calories": round(totals["total_calories"] / days, 1),
+            "protein_g": round(totals["total_protein_g"] / days, 1),
+            "carb_g": round(totals["total_carb_g"] / days, 1),
+            "fat_g": round(totals["total_fat_g"] / days, 1),
             "days": days,
         }
 
@@ -542,14 +553,8 @@ def get_history_comparison(
     )
 
     # 4) vs plan start (first recorded food_log)
-    first_log = db.fetch_one(
-        """SELECT date(log_datetime) AS first_date
-           FROM food_logs WHERE user_id = ? AND food_name != '___MEAL_TOTAL___'
-           ORDER BY log_datetime LIMIT 1""",
-        (user_id,),
-    )
-    if first_log:
-        first_date = str(first_log["first_date"])
+    if rows_by_date:
+        first_date = min(rows_by_date)
         plan_start_totals = _daily_totals(date.fromisoformat(first_date))
         comparisons.append(
             PeriodComparison(
@@ -576,34 +581,27 @@ def get_recent_trend(
     Useful for sparkline-style trend display.
     """
     db.initialize()
-    ed = end_date or date.today()
+    ed = end_date or today_local()
     sd = ed - timedelta(days=days - 1)
+    rows_by_date = _load_food_rows_by_local_date(db, user_id)
+    result_map: Dict[str, Dict[str, float]] = {}
+    current = sd
+    while current <= ed:
+        day = current.isoformat()
+        totals = _aggregate_food_rows(rows_by_date.get(day, []))
+        result_map[day] = {
+            "date": day,
+            "calories": round(totals["total_calories"], 1),
+            "protein_g": round(totals["total_protein_g"], 1),
+        }
+        current += timedelta(days=1)
 
-    with closing(db.connect()) as conn:
-        rows = conn.execute(
-            """SELECT date(log_datetime) AS d,
-                      COALESCE(SUM(calories), 0)   AS calories,
-                      COALESCE(SUM(protein_g), 0)  AS protein_g
-               FROM food_logs
-               WHERE user_id = ? AND date(log_datetime) BETWEEN ? AND ?
-                 AND food_name != '___MEAL_TOTAL___'
-               GROUP BY date(log_datetime)
-               ORDER BY d""",
-            (user_id, sd.isoformat(), ed.isoformat()),
-        ).fetchall()
-
-    # Fill in missing days with zeros
-    result_map: Dict[str, Dict] = {
-        r["d"]: {"date": r["d"], "calories": float(r["calories"]), "protein_g": float(r["protein_g"])}
-        for r in rows
-    }
     trend: List[Dict] = []
-    import datetime as dt_mod
     current = sd
     while current <= ed:
         ds = current.isoformat()
         trend.append(result_map.get(ds, {"date": ds, "calories": 0.0, "protein_g": 0.0}))
-        current += dt_mod.timedelta(days=1)
+        current += timedelta(days=1)
 
     return trend
 
@@ -624,7 +622,7 @@ def get_calorie_progress(
     If target_plan_id is not provided, reads the active weight_plan.
     """
     db.initialize()
-    sd = log_date or date.today().isoformat()
+    sd = log_date or today_local().isoformat()
 
     # Get calorie target from active plan
     plan = db.get_active_plan(user_id) if not target_plan_id else db.fetch_one(
@@ -639,29 +637,22 @@ def get_calorie_progress(
         calorie_target = int(plan["daily_calorie_target"] or 0)
         protein_target = int(plan["protein_target_g"] or 0)
 
-    # Per-meal breakdown (exclude ___MEAL_TOTAL___)
-    with closing(db.connect()) as conn:
-        rows = conn.execute(
-            """SELECT meal_type,
-                      COALESCE(SUM(calories), 0)   AS calories,
-                      COALESCE(SUM(protein_g), 0)  AS protein_g
-               FROM food_logs
-               WHERE user_id = ? AND date(log_datetime) = ?
-                 AND food_name != '___MEAL_TOTAL___'
-               GROUP BY meal_type""",
-            (user_id, sd),
-        ).fetchall()
-
+    rows = _load_food_rows_by_local_date(db, user_id).get(sd, [])
     meal_breakdown: Dict[str, Dict] = {}
     total_consumed = 0.0
     total_protein = 0.0
-    for r in rows:
-        mt = r["meal_type"]
-        cal = float(r["calories"])
-        prot = float(r["protein_g"])
-        meal_breakdown[mt] = {"calories": round(cal, 1), "protein_g": round(prot, 1)}
+    for row in rows:
+        mt = str(row["meal_type"])
+        cal = float(row.get("calories") or 0.0)
+        prot = float(row.get("protein_g") or 0.0)
+        bucket = meal_breakdown.setdefault(mt, {"calories": 0.0, "protein_g": 0.0})
+        bucket["calories"] += cal
+        bucket["protein_g"] += prot
         total_consumed += cal
         total_protein += prot
+    for bucket in meal_breakdown.values():
+        bucket["calories"] = round(bucket["calories"], 1)
+        bucket["protein_g"] = round(bucket["protein_g"], 1)
 
     return {
         "date": sd,

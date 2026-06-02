@@ -26,6 +26,7 @@ if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
 from db_manager import DBManager
+from time_utils import group_rows_by_local_date, today_local
 
 # ---------------------------------------------------------------------------
 # Constants — scoring rubric
@@ -559,34 +560,27 @@ def get_daily_nutrition(
         DailyNutrition with totals and meal/item counts.
     """
     db.initialize()
-    row = db.fetch_one(
-        """SELECT
-             COALESCE(SUM(calories), 0)      AS total_calories,
-             COALESCE(SUM(protein_g), 0)     AS total_protein_g,
-             COALESCE(SUM(carb_g), 0)        AS total_carb_g,
-             COALESCE(SUM(fat_g), 0)         AS total_fat_g,
-             COALESCE(SUM(fiber_g), 0)       AS total_fiber_g,
-             COALESCE(SUM(sodium_mg), 0)     AS total_sodium_mg,
-             COUNT(DISTINCT meal_type)       AS meal_count,
-             COUNT(*)                         AS item_count
+    rows = db.fetchall(
+        """SELECT meal_type, log_datetime, calories, protein_g, carb_g, fat_g, fiber_g, sodium_mg
            FROM food_logs
-           WHERE user_id = ? AND date(log_datetime) = ?
-             AND food_name != '___MEAL_TOTAL___'""",
-        (user_id, log_date),
+           WHERE user_id = ? AND food_name != '___MEAL_TOTAL___'
+           ORDER BY log_datetime""",
+        (user_id,),
     )
-    if not row:
+    grouped = group_rows_by_local_date((dict(row) for row in rows))
+    day_rows = grouped.get(log_date, [])
+    if not day_rows:
         return DailyNutrition()
-
-    r = dict(row)
+    meal_types = {str(row.get("meal_type") or "") for row in day_rows if row.get("meal_type")}
     return DailyNutrition(
-        total_calories=float(r.get("total_calories") or 0),
-        total_protein_g=float(r.get("total_protein_g") or 0),
-        total_carb_g=float(r.get("total_carb_g") or 0),
-        total_fat_g=float(r.get("total_fat_g") or 0),
-        total_fiber_g=float(r.get("total_fiber_g") or 0),
-        total_sodium_mg=float(r.get("total_sodium_mg") or 0),
-        meal_count=int(r.get("meal_count") or 0),
-        item_count=int(r.get("item_count") or 0),
+        total_calories=sum(float(row.get("calories") or 0) for row in day_rows),
+        total_protein_g=sum(float(row.get("protein_g") or 0) for row in day_rows),
+        total_carb_g=sum(float(row.get("carb_g") or 0) for row in day_rows),
+        total_fat_g=sum(float(row.get("fat_g") or 0) for row in day_rows),
+        total_fiber_g=sum(float(row.get("fiber_g") or 0) for row in day_rows),
+        total_sodium_mg=sum(float(row.get("sodium_mg") or 0) for row in day_rows),
+        meal_count=len(meal_types),
+        item_count=len(day_rows),
     )
 
 
@@ -611,7 +605,7 @@ def run_daily_scoring(
     the base plan target.
     """
     db.initialize()
-    sd = log_date or date.today().isoformat()
+    sd = log_date or today_local().isoformat()
 
     # Get nutrition
     nutrition = get_daily_nutrition(db, user_id, sd)

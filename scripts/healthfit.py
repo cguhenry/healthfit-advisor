@@ -12,11 +12,13 @@ import argparse
 import json
 import subprocess
 import sys
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+from time_utils import local_date_str_from_iso, today_local
 
 
 def _run_script(script_name: str, forwarded_args: Sequence[str]) -> int:
@@ -30,9 +32,8 @@ def _run_script(script_name: str, forwarded_args: Sequence[str]) -> int:
 
 def _summary_date_from_timestamp(log_datetime: str | None) -> str:
     if not log_datetime:
-        return date.today().isoformat()
-    normalized = log_datetime.replace("Z", "+00:00")
-    return datetime.fromisoformat(normalized).date().isoformat()
+        return today_local().isoformat()
+    return local_date_str_from_iso(log_datetime)
 
 
 def _load_json_payload(path_or_dash: str) -> dict[str, Any]:

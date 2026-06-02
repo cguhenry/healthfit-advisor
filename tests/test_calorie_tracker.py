@@ -36,6 +36,8 @@ class CalorieTrackerTestCase(unittest.TestCase):
     """Tests that require a real (but temporary) SQLite database."""
 
     def setUp(self) -> None:
+        self._original_timezone = os.environ.get("HEALTHFIT_TIMEZONE")
+        os.environ["HEALTHFIT_TIMEZONE"] = "UTC"
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.db_path = Path(self.tmp.name)
@@ -56,6 +58,10 @@ class CalorieTrackerTestCase(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        if self._original_timezone is None:
+            os.environ.pop("HEALTHFIT_TIMEZONE", None)
+        else:
+            os.environ["HEALTHFIT_TIMEZONE"] = self._original_timezone
         try:
             os.unlink(self.tmp.name)
         except OSError:
@@ -485,6 +491,57 @@ class CalorieTrackerTestCase(unittest.TestCase):
         summary = upsert_daily_summary(self.db, self.user_id, custom_date, calorie_target=2000)
         self.assertEqual(summary.summary_date, custom_date)
         self.assertAlmostEqual(summary.total_calories, 670.0, places=1)
+
+    def test_local_timezone_rolls_late_utc_breakfast_into_same_local_day(self):
+        os.environ["HEALTHFIT_TIMEZONE"] = "Asia/Taipei"
+        self.db.save_active_plan(
+            self.user_id,
+            {
+                "current_weight_kg": 69.8,
+                "goal_weight_kg": 65.0,
+                "target_weeks": 12,
+                "weekly_change_kg": -0.4,
+                "weekly_change_pct": -0.5,
+                "bmr": 1500,
+                "tdee": 2000,
+                "activity_level": "sedentary",
+                "daily_calorie_target": 1500,
+                "daily_calorie_delta": -500,
+                "goal_type": "loss",
+                "macros": {"protein_g": 120, "carb_g": 150, "fat_g": 50},
+                "warnings": [],
+                "requires_professional_review": False,
+            },
+        )
+
+        breakfast_ts = "2026-06-01T22:31:48+00:00"
+        lunch_ts = "2026-06-02T04:48:59+00:00"
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "breakfast",
+            [{"name": "早餐", "estimated_g": 1, "calories": 693, "protein_g": 40, "carb_g": 70, "fat_g": 28, "confidence": 1.0}],
+            log_datetime=breakfast_ts,
+        )
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "lunch",
+            [{"name": "午餐", "estimated_g": 1, "calories": 880, "protein_g": 37, "carb_g": 110, "fat_g": 31.5, "confidence": 1.0}],
+            log_datetime=lunch_ts,
+        )
+
+        summary = upsert_daily_summary(self.db, self.user_id, "2026-06-02", calorie_target=1500)
+        progress = get_calorie_progress(self.db, self.user_id, log_date="2026-06-02")
+
+        self.assertAlmostEqual(summary.total_calories, 1573.0, places=1)
+        self.assertAlmostEqual(summary.total_protein_g, 77.0, places=1)
+        self.assertAlmostEqual(progress["calories_consumed"], 1573.0, places=1)
+        self.assertAlmostEqual(progress["calories_remaining"], -73.0, places=1)
+        self.assertAlmostEqual(progress["protein_consumed_g"], 77.0, places=1)
+        self.assertAlmostEqual(progress["protein_remaining_g"], 43.0, places=1)
+        self.assertAlmostEqual(progress["meal_breakdown"]["breakfast"]["calories"], 693.0, places=1)
+        self.assertAlmostEqual(progress["meal_breakdown"]["lunch"]["calories"], 880.0, places=1)
 
 
 if __name__ == "__main__":

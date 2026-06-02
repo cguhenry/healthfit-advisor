@@ -333,6 +333,8 @@ class TestPersistence(unittest.TestCase):
 
 class TestDailyNutrition(unittest.TestCase):
     def setUp(self):
+        self._original_timezone = os.environ.get("HEALTHFIT_TIMEZONE")
+        os.environ["HEALTHFIT_TIMEZONE"] = "UTC"
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.tmp.close()
         self.db = DBManager(Path(self.tmp.name), fast_mode=True)
@@ -341,6 +343,10 @@ class TestDailyNutrition(unittest.TestCase):
         self.db.upsert_user_profile({"user_id": self.user_id})
 
     def tearDown(self):
+        if self._original_timezone is None:
+            os.environ.pop("HEALTHFIT_TIMEZONE", None)
+        else:
+            os.environ["HEALTHFIT_TIMEZONE"] = self._original_timezone
         os.unlink(self.tmp.name)
 
     def _log_food(self, calories=500, protein_g=20, carb_g=60, fat_g=15,
@@ -390,6 +396,31 @@ class TestDailyNutrition(unittest.TestCase):
         today = date.today().isoformat()
         nut = get_daily_nutrition(self.db, self.user_id, today)
         self.assertAlmostEqual(nut.total_calories, 900, delta=1)
+        self.assertEqual(nut.item_count, 2)
+
+    def test_get_daily_nutrition_uses_configured_local_date(self):
+        os.environ["HEALTHFIT_TIMEZONE"] = "Asia/Taipei"
+        from calorie_tracker import log_meal_analysis
+
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "breakfast",
+            [{"name": "早餐", "estimated_g": 1, "calories": 693, "protein_g": 40, "carb_g": 70, "fat_g": 28, "fiber_g": 0, "sodium_mg": 0, "confidence": 1.0}],
+            log_datetime="2026-06-01T22:31:48+00:00",
+        )
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "lunch",
+            [{"name": "午餐", "estimated_g": 1, "calories": 880, "protein_g": 37, "carb_g": 110, "fat_g": 31.5, "fiber_g": 0, "sodium_mg": 0, "confidence": 1.0}],
+            log_datetime="2026-06-02T04:48:59+00:00",
+        )
+
+        nut = get_daily_nutrition(self.db, self.user_id, "2026-06-02")
+        self.assertAlmostEqual(nut.total_calories, 1573.0, delta=1)
+        self.assertAlmostEqual(nut.total_protein_g, 77.0, delta=1)
+        self.assertEqual(nut.meal_count, 2)
         self.assertEqual(nut.item_count, 2)
 
 
