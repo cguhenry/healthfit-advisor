@@ -16,3 +16,6 @@ dist/
 *.sqlite3
 .healthfit/
 data/
+@eaDir/
+**/@eaDir/
+*.@SynoEAStream
