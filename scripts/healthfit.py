@@ -55,6 +55,73 @@ def _write_json_file(path: str, payload: dict[str, Any]) -> str:
     return str(target)
 
 
+_GENERIC_IMAGE_FOOD_NAMES = {
+    "主菜",
+    "主菜肉類",
+    "配菜",
+    "其他配菜",
+    "青菜與其他配菜",
+    "照片晚餐",
+    "照片午餐",
+    "照片早餐",
+    "便當",
+    "餐點",
+    "食物",
+    "未知",
+    "無法辨識",
+}
+
+
+def _validate_image_payload_for_autolog(payload: dict[str, Any], scenario: str) -> None:
+    """Refuse to auto-log image analyses that do not prove the image was reviewed."""
+    if scenario not in {"food", "before_after"}:
+        return
+
+    evidence = payload.get("visual_evidence")
+    if not isinstance(evidence, dict):
+        raise ValueError(
+            "Phase 3 image payload is missing 'visual_evidence'. "
+            "Refusing to auto-log a photo analysis without explicit visual evidence."
+        )
+    if evidence.get("image_reviewed") is not True:
+        raise ValueError(
+            "Phase 3 image payload did not confirm image_reviewed=true. "
+            "Refusing to auto-log because the model may not have actually seen the image."
+        )
+    scene_summary = str(evidence.get("scene_summary") or "").strip()
+    if not scene_summary:
+        raise ValueError(
+            "Phase 3 image payload is missing visual_evidence.scene_summary. "
+            "Refusing to auto-log because there is no textual description of the observed scene."
+        )
+
+    food_key = "consumed_foods" if scenario == "before_after" else "foods"
+    foods = payload.get(food_key)
+    if not isinstance(foods, list) or not foods:
+        raise ValueError(
+            f"Phase 3 image payload has no '{food_key}' entries. "
+            "Refusing to auto-log an empty photo analysis."
+        )
+
+    for idx, item in enumerate(foods):
+        if not isinstance(item, dict):
+            raise ValueError(f"{food_key}[{idx}] must be an object.")
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise ValueError(f"{food_key}[{idx}].name is required.")
+        if name in _GENERIC_IMAGE_FOOD_NAMES:
+            raise ValueError(
+                f"{food_key}[{idx}].name='{name}' is too generic for auto-log. "
+                "Use a concrete food name or switch to manual confirmation."
+            )
+        item_evidence = str(item.get("evidence") or "").strip()
+        if not item_evidence:
+            raise ValueError(
+                f"{food_key}[{idx}] is missing 'evidence'. "
+                "Refusing to auto-log because the analysis does not justify the identification."
+            )
+
+
 def _build_image_prompt_bundle(forwarded_args: Sequence[str]) -> int:
     from db_manager import DBManager
     from food_analyzer import AnalysisScenario, build_llm_prompt
@@ -251,6 +318,7 @@ def _run_log_from_image(forwarded_args: Sequence[str]) -> int:
     args = parser.parse_args(list(forwarded_args))
 
     raw_payload = _load_json_payload(args.json_file)
+    _validate_image_payload_for_autolog(raw_payload, args.scenario)
     saved_raw_response = None
     if args.save_raw_response:
         saved_raw_response = _write_json_file(args.save_raw_response, raw_payload)

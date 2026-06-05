@@ -195,6 +195,11 @@ FOOD_ANALYSIS_PROMPT_TEMPLATE = """你是一個專業的營養辨識AI，專精�
 
 輸出格式（JSON）：
 {{
+  "visual_evidence": {{
+    "image_reviewed": true,
+    "scene_summary": "一句話描述你在照片中實際看到的內容，例如：1根香蕉、1顆小蘋果、旁邊有10元硬幣作比例尺",
+    "reference_objects": ["10元硬幣", "碗", "筷子"]
+  }},
   "foods": [
     {{
       "name": "食物名稱",
@@ -206,7 +211,8 @@ FOOD_ANALYSIS_PROMPT_TEMPLATE = """你是一個專業的營養辨識AI，專精�
       "fat_g": 9,
       "confidence": 0.88,
       "confidence_tier": "high｜medium｜low",
-      "size_reference": "以直徑15cm盤子作為比例尺"
+      "size_reference": "以直徑15cm盤子作為比例尺",
+      "evidence": "你為什麼認為這是這個食物，例如：黃色彎曲水果、可見果梗、大小接近10元硬幣的3倍"
     }}
   ],
   "total_calories": 520,
@@ -225,6 +231,8 @@ FOOD_ANALYSIS_PROMPT_TEMPLATE = """你是一個專業的營養辨識AI，專精�
 
 注意：
 - `foods` 陣列中的每一項都必須包含該食物自己的 `calories`、`protein_g`、`carb_g`、`fat_g`；不可只提供整餐總量
+- `visual_evidence.image_reviewed` 必須是 true；如果你沒有真的看到圖片，不可假裝分析，應回傳空 foods 並在 `low_confidence_warnings` 說明原因
+- 每個 food 都必須提供 `evidence`。若只能模糊描述成「主菜」「配菜」「便當」而無法辨識具體食物，請不要列入 foods，改放進 `low_confidence_warnings`
 - `total_calories` 與 `macros` 應為 `foods` 陣列各項數值加總後的整餐估算
 - 份量估算應參考亞洲常見份量標準（白飯一碗約200g，雞腿一隻約150g等）
 - 不要猜測完全無法辨識的食材，標註為「無法辨識」並略過

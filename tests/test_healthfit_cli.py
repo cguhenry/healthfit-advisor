@@ -58,6 +58,11 @@ class TestHealthFitCli(unittest.TestCase):
         tmp_json = tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8")
         json.dump(
             {
+                "visual_evidence": {
+                    "image_reviewed": True,
+                    "scene_summary": "一份雞胸肉放在餐盒中。",
+                    "reference_objects": ["餐盒"]
+                },
                 "foods": [
                     {
                         "name": "雞胸肉",
@@ -67,6 +72,7 @@ class TestHealthFitCli(unittest.TestCase):
                         "carb_g": 0,
                         "fat_g": 4,
                         "confidence": 0.91,
+                        "evidence": "可見切片白肉與雞胸肉紋理",
                     }
                 ],
                 "total_calories": 198,
@@ -119,6 +125,11 @@ class TestHealthFitCli(unittest.TestCase):
         tmp_dir = tempfile.mkdtemp()
         raw_path = Path(tmp_dir) / "phase3_response.json"
         raw_payload = {
+            "visual_evidence": {
+                "image_reviewed": True,
+                "scene_summary": "一條地瓜放在桌上。",
+                "reference_objects": ["桌面"]
+            },
             "foods": [
                 {
                     "name": "地瓜",
@@ -128,6 +139,7 @@ class TestHealthFitCli(unittest.TestCase):
                     "carb_g": 31,
                     "fat_g": 0.2,
                     "confidence": 0.87,
+                    "evidence": "可見紫褐色地瓜外皮與長條塊根形狀",
                 }
             ],
             "total_calories": 135,
@@ -174,6 +186,53 @@ class TestHealthFitCli(unittest.TestCase):
             if raw_path.exists():
                 raw_path.unlink()
             os.rmdir(tmp_dir)
+
+    def test_log_from_image_rejects_payload_without_visual_evidence(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        tmp_json = tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8")
+        json.dump(
+            {
+                "foods": [
+                    {
+                        "name": "雞胸肉",
+                        "estimated_g": 120,
+                        "calories": 198,
+                        "protein_g": 36,
+                        "carb_g": 0,
+                        "fat_g": 4,
+                        "confidence": 0.91
+                    }
+                ],
+                "total_calories": 198,
+                "macros": {"protein_g": 36, "carb_g": 0, "fat_g": 4},
+                "confidence": 0.91
+            },
+            tmp_json,
+            ensure_ascii=False,
+        )
+        tmp_json.close()
+
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            with self.assertRaisesRegex(ValueError, "visual_evidence"):
+                healthfit.dispatch(
+                    ["log", "from-image", tmp_json.name, "--user-id", "u1", "--db-path", tmp_db.name]
+                )
+        finally:
+            os.unlink(tmp_db.name)
+            os.unlink(tmp_json.name)
 
     def test_image_prompt_builds_next_command(self):
         with mock.patch("builtins.print") as print_mock:

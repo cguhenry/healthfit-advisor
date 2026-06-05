@@ -68,6 +68,11 @@ MOCK_MENU_RESPONSE = {
 }
 
 MOCK_FOOD_RESPONSE = {
+    "visual_evidence": {
+        "image_reviewed": True,
+        "scene_summary": "一碗白飯、一片烤鯖魚和一份空心菜。",
+        "reference_objects": ["14cm 碗"]
+    },
     "foods": [
         {
             "name": "白飯",
@@ -79,7 +84,8 @@ MOCK_FOOD_RESPONSE = {
             "fat_g": 0.6,
             "confidence": 0.92,
             "confidence_tier": "high",
-            "size_reference": "直徑14cm碗約200g"
+            "size_reference": "直徑14cm碗約200g",
+            "evidence": "白色米飯裝在碗裡，顆粒清楚可見"
         },
         {
             "name": "烤鯖魚",
@@ -91,7 +97,8 @@ MOCK_FOOD_RESPONSE = {
             "fat_g": 15,
             "confidence": 0.85,
             "confidence_tier": "high",
-            "size_reference": "手掌大小一片約120g"
+            "size_reference": "手掌大小一片約120g",
+            "evidence": "可見魚皮與橫切魚片形狀"
         },
         {
             "name": "空心菜",
@@ -103,7 +110,8 @@ MOCK_FOOD_RESPONSE = {
             "fat_g": 0.3,
             "confidence": 0.55,  # low
             "confidence_tier": "low",
-            "size_reference": "約一碗青菜份量"
+            "size_reference": "約一碗青菜份量",
+            "evidence": "綠色葉菜，細長梗葉外觀接近空心菜"
         },
     ],
     "total_calories": 500,
@@ -181,6 +189,8 @@ class TestBuildLLMPrompt(unittest.TestCase):
         self.assertIn("loss", user_msg)
         self.assertIn("foods", user_msg)
         self.assertIn("estimated_g", user_msg)
+        self.assertIn("visual_evidence", user_msg)
+        self.assertIn("evidence", user_msg)
 
     def test_before_after_scenario_includes_context(self):
         _, user_msg = build_llm_prompt(
