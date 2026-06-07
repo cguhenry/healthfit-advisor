@@ -230,6 +230,9 @@ FOOD_ANALYSIS_PROMPT_TEMPLATE = """你是一個專業的營養辨識AI，專精�
 }}
 
 注意：
+- 你只能回報「照片中實際看得到」的食物，以及使用者已明確提供的補充資訊；禁止用常見套餐、習慣搭配、品牌預設組合去腦補畫面外食物
+- 若照片裡只看得到飲料、單一包裝食品、或部分容器，請只記錄那些已看見的內容；不要額外生成茶葉蛋、三明治、配菜等未出現在畫面中的項目
+- 若包裝食品名稱、內容物、口味或份量無法從照片確認，應在 `low_confidence_warnings` 說明未確認原因，而不是把猜測值直接寫進 `foods`
 - `foods` 陣列中的每一項都必須包含該食物自己的 `calories`、`protein_g`、`carb_g`、`fat_g`；不可只提供整餐總量
 - `visual_evidence.image_reviewed` 必須是 true；如果你沒有真的看到圖片，不可假裝分析，應回傳空 foods 並在 `low_confidence_warnings` 說明原因
 - 每個 food 都必須提供 `evidence`。若只能模糊描述成「主菜」「配菜」「便當」而無法辨識具體食物，請不要列入 foods，改放進 `low_confidence_warnings`
@@ -354,6 +357,7 @@ def build_llm_prompt(
     system_prompt = (
         f"{system_role}\n\n"
         "你將收到一張食物或菜單的照片。請根據所見內容分析並以 JSON 格式回應。\n"
+        "只允許根據照片中真的看得到的內容作答；看不到、看不清、或未經使用者確認的品項一律不得腦補。\n"
         "重要：輸出乾淨的 JSON，不要用 markdown 程式碼 block 包裝。"
     )
 

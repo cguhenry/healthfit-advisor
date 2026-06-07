@@ -73,6 +73,9 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
 - Vision capability check is model ID-based; no Vision API calls.
 - Image analysis is delegated to the agent framework's own LLM.
 - Prompt templates (`build_llm_prompt()`) and response schema are skill-provided.
+- Meal-photo logging is evidence-first: only foods clearly visible in the image or explicitly confirmed by the user may be logged.
+- If a photo contains unknown packaged food, hidden contents, ambiguous ingredients, or unclear portion sizes, the agent must mark them uncertain instead of inventing likely foods.
+- For photo-based intake, the reply must distinguish three sources of truth: `照片可確認`, `使用者補充`, and `工程估算`.
 - Native FOOD output intended for Phase 4 ingestion is documented in `references/phase3_output_schema.json`.
 - Confidence tiers classify results: ≥85% high, 60–85% medium, <60% low (auto-flagged).
 - Low-confidence items produce warnings asking user to confirm manually.
@@ -199,6 +202,11 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
 
 - 先讀 profile，再讀或建立 active plan。
 - 如果輸入缺少年齡、身高、體重、活動量或目標時程，不要硬猜；只補齊必要欄位。
+- 只要使用者有附餐點照片，必須先實際判讀照片，再決定是否落庫；不能跳過看圖直接依常見早餐/便當組合腦補。
+- 影像記錄只能寫入「照片中清楚可見」或「使用者文字明確確認」的品項。任何看不清、被遮住、包裝未辨識、份量不明的內容，都不能當作已確認品項直接記錄。
+- 若照片只能確認部分內容，預設採保守策略：寧可少記並標示待確認，也不能多記不存在的食物。
+- 回覆使用者時，要明確區分：`照片可確認`、`使用者補充`、`工程估算`。
+- 若照片中可見食物數量很少（例如只看到一杯飲料和一個未辨識包裝物），禁止自動補出額外餐點名稱。
 - 人種修正只作可選校正項，不要包裝成高確定性的醫學定論。
 - 使用「安全調整後方案」作為預設輸出，並把原始不安全方案列在 warning 中。
 - 需要 persistent storage 時，先用 `db_manager.py`，不要把 SQL 散落在各腳本裡。
