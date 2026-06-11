@@ -221,6 +221,32 @@ def _is_nan(value: float) -> bool:
     return value != value
 
 
+def _compute_y_axis_bounds(values: list[float]) -> tuple[float, float]:
+    """Compute dynamic y-axis bounds with extra zoom for small weight changes."""
+    data_min = min(values)
+    data_max = max(values)
+    raw_span = data_max - data_min
+
+    # Weekly weight changes are usually subtle; keep enough zoom so
+    # sub-0.1 kg deltas do not collapse into a flat line.
+    if raw_span <= 0:
+        span = 0.08
+    else:
+        span = max(raw_span, 0.08)
+
+    pad = max(span * 0.08, 0.01)
+    center = (data_min + data_max) / 2
+    half_range = span / 2 + pad
+    return center - half_range, center + half_range
+
+
+def _format_y_axis_label(value: float, y_span: float) -> str:
+    """Render y-axis labels with more precision when the visible span is tight."""
+    if y_span < 1.0:
+        return f"{value:6.2f}"
+    return f"{value:5.1f}"
+
+
 def render_ascii_chart(
     data: WeightChartData,
     width: int = 50,
@@ -240,12 +266,8 @@ def render_ascii_chart(
     if not values:
         return "（沒有可視覺化的體重資料）"
 
-    data_min = min(values)
-    data_max = max(values)
-    span = max(data_max - data_min, 0.5)
-    pad = span * 0.08
-    y_min = data_min - pad
-    y_max = data_max + pad
+    y_min, y_max = _compute_y_axis_bounds(values)
+    y_span = max(y_max - y_min, 0.01)
 
     n = len(data.dates)
     if n == 0:
@@ -259,7 +281,7 @@ def render_ascii_chart(
         return round(i / (n - 1) * (width - 1))
 
     def row_for_value(value: float) -> int:
-        ratio = (value - y_min) / max(y_max - y_min, 0.01)
+        ratio = (value - y_min) / y_span
         return height - 1 - round(ratio * (height - 1))
 
     # Plot predicted trajectory
@@ -287,15 +309,15 @@ def render_ascii_chart(
             if grid[goal_row][c] == " ":
                 grid[goal_row][c] = "━"
 
-    # Y-axis label prefix width: f"{value:5.1f}" == 5 chars
-    Y_PREFIX = 5
+    label_width = 6 if y_span < 1.0 else 5
+    Y_PREFIX = label_width
     # Build output
     lines: list[str] = []
     lines.append(data.plan_label)
 
     for r, row in enumerate(grid):
-        value_label = y_max - (r / max(height - 1, 1)) * (y_max - y_min)
-        lines.append(f"{value_label:5.1f}│{''.join(row)}")
+        value_label = y_max - (r / max(height - 1, 1)) * y_span
+        lines.append(f"{_format_y_axis_label(value_label, y_span)}│{''.join(row)}")
 
     lines.append(" " * Y_PREFIX + "└" + "─" * width)
 

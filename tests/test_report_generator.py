@@ -278,6 +278,34 @@ class TestWeeklyReport(unittest.TestCase):
         self.assertIn("早餐", report)
         self.assertIn("午餐", report)
 
+    def test_daily_report_shows_real_item_counts(self):
+        from calorie_tracker import log_meal_analysis
+
+        today = date.today().isoformat()
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "breakfast",
+            [
+                {"name": "牛奶", "estimated_g": 300, "calories": 190, "protein_g": 10, "carb_g": 15, "fat_g": 10, "fiber_g": 0, "sodium_mg": 120, "confidence": 0.9},
+                {"name": "麵包", "estimated_g": 40, "calories": 150, "protein_g": 4, "carb_g": 25, "fat_g": 4, "fiber_g": 1, "sodium_mg": 180, "confidence": 0.9},
+            ],
+            log_datetime=today + "T08:00:00+00:00",
+        )
+        log_meal_analysis(
+            self.db,
+            self.user_id,
+            "lunch",
+            [
+                {"name": "便當", "estimated_g": 400, "calories": 700, "protein_g": 30, "carb_g": 80, "fat_g": 25, "fiber_g": 5, "sodium_mg": 800, "confidence": 0.9},
+            ],
+            log_datetime=today + "T12:00:00+00:00",
+        )
+
+        report = generate_daily_report(self.db, self.user_id)
+        self.assertIn("早餐：340 kcal | 蛋白 14g | 2 項食物", report)
+        self.assertIn("午餐：700 kcal | 蛋白 30g | 1 項食物", report)
+
 
 if __name__ == "__main__":
     unittest.main()

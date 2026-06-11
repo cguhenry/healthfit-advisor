@@ -369,7 +369,9 @@ def _meal_progress(lines: List[str], progress: Dict[str, Any]) -> None:
             cal = data.get("calories", 0)
             prot = data.get("protein_g", 0)
             items = data.get("items", 0)
-            lines.append(f"  {meal_name}：{cal:.0f} kcal | 蛋白 {prot:.0f}g | {items} 項食物")
+            skipped = bool(data.get("skipped"))
+            item_label = "已略過" if skipped and items == 0 else f"{items} 項食物"
+            lines.append(f"  {meal_name}：{cal:.0f} kcal | 蛋白 {prot:.0f}g | {item_label}")
     elif total_cal > 0:
         lines.append(f"  已記錄 {total_cal:.0f} kcal，尚無分餐明細")
 

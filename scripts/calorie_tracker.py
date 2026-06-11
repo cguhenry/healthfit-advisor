@@ -645,9 +645,17 @@ def get_calorie_progress(
         mt = str(row["meal_type"])
         cal = float(row.get("calories") or 0.0)
         prot = float(row.get("protein_g") or 0.0)
-        bucket = meal_breakdown.setdefault(mt, {"calories": 0.0, "protein_g": 0.0})
+        bucket = meal_breakdown.setdefault(
+            mt,
+            {"calories": 0.0, "protein_g": 0.0, "items": 0, "skipped": False},
+        )
         bucket["calories"] += cal
         bucket["protein_g"] += prot
+        food_name = str(row.get("food_name") or "")
+        if food_name == "___SKIPPED___":
+            bucket["skipped"] = True
+        else:
+            bucket["items"] += 1
         total_consumed += cal
         total_protein += prot
     for bucket in meal_breakdown.values():

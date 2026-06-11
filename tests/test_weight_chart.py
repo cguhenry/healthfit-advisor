@@ -291,6 +291,31 @@ class TestRenderAsciiChartRenders(unittest.TestCase):
         # Should contain goal line character
         self.assertIn("━", result)
 
+    def test_chart_zooms_small_weight_changes_and_keeps_precision(self):
+        d = [date(2026, 6, 1) + timedelta(days=i) for i in range(5)]
+        pred = [68.60, 68.59, 68.58, 68.57, 68.56]
+        act = [68.61, None, 68.585, None, 68.55]
+
+        data = wc_module.WeightChartData(
+            plan_start_date=date(2026, 6, 1),
+            dates=d,
+            predicted=pred,
+            actual=act,
+            goal_weight_kg=68.40,
+            plan_daily_target_kcal=1500,
+            plan_label="減重計劃（2026-06-01 起）",
+        )
+        result = wc_module.render_ascii_chart(data, width=30, height=10)
+
+        chart_lines = [line for line in result.splitlines() if "│" in line]
+        self.assertTrue(any("." in line[:7] and len(line[:7].strip().split(".")[-1]) >= 2 for line in chart_lines))
+
+        rows_with_points = {
+            idx for idx, line in enumerate(chart_lines)
+            if "·" in line or "●" in line
+        }
+        self.assertGreater(len(rows_with_points), 1)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # _compute_progress_label
