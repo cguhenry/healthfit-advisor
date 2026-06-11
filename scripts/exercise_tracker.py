@@ -56,6 +56,13 @@ _MET_TABLE: dict[tuple[str, str], float] = {
     ("走路", "light"): 2.5,
     ("走路", "moderate"): 3.5,
     ("走路", "vigorous"): 5.0,
+    # ACSM walking equation proxy: 4 km/h with steep incline is roughly 7 MET.
+    ("上坡走路", "light"): 5.0,
+    ("上坡走路", "moderate"): 6.0,
+    ("上坡走路", "vigorous"): 7.0,
+    ("跑步機上坡走", "light"): 5.0,
+    ("跑步機上坡走", "moderate"): 6.0,
+    ("跑步機上坡走", "vigorous"): 7.0,
     ("騎腳踏車", "light"): 4.0,
     ("騎腳踏車", "moderate"): 6.8,
     ("騎腳踏車", "vigorous"): 10.0,
@@ -156,7 +163,7 @@ INTENSITY_ALIASES = {
 }
 
 EXERCISE_TYPE_ALIASES = {
-    "cardio": ["有氧", "跑步", "慢跑", "快走", "走路", "騎腳踏車", "飛輪", "游泳", "跳繩",
+    "cardio": ["有氧", "跑步", "慢跑", "快走", "走路", "上坡走路", "跑步機上坡走", "騎腳踏車", "飛輪", "游泳", "跳繩",
                "橢圓機", "划船機", "樓梯機", "跳舞", "籃球", "羽球", "網球", "桌球", "登山"],
     "strength": ["重訓", "深蹲", "硬舉", "臥推", "壺鈴", "伏地挺身", "引體向上"],
     "hiit": ["tabata", "hiit", "波比跳", "間歇跑", "高強度間歇"],
@@ -422,7 +429,7 @@ def _get_db_and_user():
     if not db_path.exists():
         print("No database found. Run the Phase 1 intake flow first.", file=sys.stderr)
         sys.exit(1)
-    db = DBManager(db=str(db_path))
+    db = DBManager(db_path=str(db_path))
 
     profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser()))
     if not profile_path.exists():
@@ -438,15 +445,24 @@ def _get_db_and_user():
 def cmd_log(args: argparse.Namespace) -> None:
     db, user_id = _get_db_and_user()
 
-    # Get weight for MET calculation
-    row = db.fetchone(
-        """SELECT goal_weight_kg, start_weight_kg FROM weight_plans
-           WHERE user_id = ? AND is_active = 1 LIMIT 1""",
-        (user_id,),
-    )
     weight_kg = 70.0  # fallback
-    if row:
-        weight_kg = float(row["goal_weight_kg"] or row["start_weight_kg"] or 70.0)
+    profile_path = Path(
+        os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser())
+    )
+    if profile_path.exists():
+        with open(profile_path) as f:
+            profile = json.load(f)
+        current_weight = profile.get("current_weight_kg")
+        if current_weight:
+            weight_kg = float(current_weight)
+    if weight_kg == 70.0:
+        row = db.fetchone(
+            """SELECT start_weight_kg FROM weight_plans
+               WHERE user_id = ? AND is_active = 1 LIMIT 1""",
+            (user_id,),
+        )
+        if row:
+            weight_kg = float(row["start_weight_kg"] or 70.0)
 
     target_date = args.date or str(date.today())
     etype = args.type or classify_exercise_type(args.activity)
