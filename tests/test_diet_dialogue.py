@@ -126,6 +126,14 @@ class TestDialogueFlow(unittest.TestCase):
         self.assertEqual(foods[0]["estimated_g"], 150.0)
         self.assertEqual(foods[1]["food_db_source"], "MANUAL")
 
+    def test_extract_foods_from_text_supports_cc_and_count_units(self):
+        foods = extract_foods_from_text("6/17早餐，全脂鮮奶500cc，高麗菜包子1個")
+        self.assertEqual([food["name"] for food in foods], ["全脂鮮奶", "高麗菜包子"])
+        self.assertEqual(foods[0]["estimated_g"], 500.0)
+        self.assertEqual(foods[0]["quantity_unit"], "ml")
+        self.assertEqual(foods[1]["estimated_g"], 120.0)
+        self.assertEqual(foods[1]["quantity_unit"], "個")
+
     def test_process_checkin_response_logs_manual_meal(self):
         tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp_db.close()
@@ -153,10 +161,51 @@ class TestDialogueFlow(unittest.TestCase):
             self.assertEqual(result["meal_type"], "lunch")
             self.assertEqual(result["logged_rows"], 3)
             row = db.fetch_one(
-                "SELECT COUNT(*) AS count FROM food_logs WHERE user_id = ? AND food_db_source = ?",
-                ("u1", "MANUAL"),
+                "SELECT COUNT(*) AS count, SUM(calories) AS total_calories, SUM(protein_g) AS total_protein_g "
+                "FROM food_logs WHERE user_id = ?",
+                ("u1",),
             )
             self.assertEqual(row["count"], 3)
+            self.assertGreater(row["total_calories"], 0)
+            self.assertGreater(row["total_protein_g"], 0)
+        finally:
+            os.unlink(tmp_db.name)
+
+    def test_process_checkin_response_applies_rule_estimates_for_clear_text(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "全脂鮮奶500cc、高麗菜包子1個",
+                user_id="u1",
+                meal_type="breakfast",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "logged")
+            self.assertEqual(result["logged_rows"], 2)
+            self.assertEqual(result["summary"]["total_calories"], 505.0)
+            self.assertEqual(result["summary"]["total_protein_g"], 22.0)
+            rows = db.fetchall(
+                "SELECT food_name, calories, protein_g, food_db_source FROM food_logs WHERE user_id = ? ORDER BY rowid",
+                ("u1",),
+            )
+            self.assertEqual(rows[0]["food_name"], "全脂鮮奶")
+            self.assertEqual(rows[0]["food_db_source"], "RULE_EST")
+            self.assertEqual(rows[1]["food_name"], "高麗菜包子")
+            self.assertEqual(rows[1]["food_db_source"], "RULE_EST")
         finally:
             os.unlink(tmp_db.name)
 

@@ -309,10 +309,11 @@ class TestHealthFitCli(unittest.TestCase):
             self.assertEqual(payload["status"], "logged")
             self.assertEqual(payload["logged_rows"], 3)
             row = db.fetch_one(
-                "SELECT COUNT(*) AS count FROM food_logs WHERE user_id = ? AND food_db_source = ?",
-                ("u1", "MANUAL"),
+                "SELECT COUNT(*) AS count, SUM(calories) AS total_calories FROM food_logs WHERE user_id = ?",
+                ("u1",),
             )
             self.assertEqual(row["count"], 3)
+            self.assertGreater(row["total_calories"], 0)
         finally:
             os.unlink(tmp_db.name)
 

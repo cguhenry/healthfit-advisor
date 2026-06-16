@@ -12,7 +12,7 @@ import sys
 import re
 import uuid
 from collections import OrderedDict
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple
 
@@ -20,12 +20,14 @@ try:
     from menu_advisor import MenuAdvisor, recommend_from_payload
     from calorie_tracker import log_meal_manual, upsert_daily_summary
     from db_manager import DBManager
+    from time_utils import today_local
 except ImportError:
     # allow running as a script without modifying sys.path
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
     from menu_advisor import MenuAdvisor, recommend_from_payload
     from calorie_tracker import log_meal_manual, upsert_daily_summary
     from db_manager import DBManager
+    from time_utils import today_local
 
 
 # ---------------------------------------------------------------------------
@@ -143,13 +145,28 @@ def _match(options: list[str], raw: str) -> Optional[str]:
     return None
 
 
-def _extract_quantity_grams(fragment: str) -> tuple[str, float]:
-    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:g|克)", fragment, flags=re.IGNORECASE)
+def _extract_quantity(fragment: str) -> tuple[str, float, float, str | None]:
+    match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(g|克|kg|公斤|ml|mL|cc|c\.c\.|毫升|l|L|公升|個|顆|粒|片|碗|杯|瓶|份|條)",
+        fragment,
+        flags=re.IGNORECASE,
+    )
     if not match:
-        return fragment, 0.0
-    quantity_g = float(match.group(1))
+        return fragment, 0.0, 0.0, None
+
+    raw_value = float(match.group(1))
+    raw_unit = match.group(2).lower()
     cleaned = (fragment[:match.start()] + fragment[match.end():]).strip()
-    return cleaned, quantity_g
+
+    if raw_unit in {"kg", "公斤"}:
+        return cleaned, raw_value * 1000.0, raw_value, "kg"
+    if raw_unit in {"g", "克"}:
+        return cleaned, raw_value, raw_value, "g"
+    if raw_unit in {"ml", "cc", "c.c.", "毫升"}:
+        return cleaned, raw_value, raw_value, "ml"
+    if raw_unit in {"l", "公升"}:
+        return cleaned, raw_value * 1000.0, raw_value, "l"
+    return cleaned, 0.0, raw_value, raw_unit
 
 
 def _normalize_food_name(fragment: str) -> str:
@@ -159,6 +176,186 @@ def _normalize_food_name(fragment: str) -> str:
     cleaned = re.sub(r"(了|喔|哦|啊|呀|欸)$", "", cleaned)
     cleaned = re.sub(r"\s+", "", cleaned)
     return cleaned.strip("，。；、,. ")
+
+
+_TEXT_MEAL_ESTIMATE_PROFILES: List[Dict[str, Any]] = [
+    {
+        "keywords": ("全脂鮮奶", "鮮奶", "牛奶"),
+        "per_100ml": {"calories": 61.0, "protein_g": 3.2, "carb_g": 4.8, "fat_g": 3.3},
+        "default_ml": 240.0,
+        "confidence": 0.78,
+    },
+    {
+        "keywords": ("無糖豆漿", "豆漿"),
+        "per_100ml": {"calories": 42.7, "protein_g": 3.2, "carb_g": 2.1, "fat_g": 2.1},
+        "default_ml": 375.0,
+        "confidence": 0.72,
+    },
+    {
+        "keywords": ("雞胸肉",),
+        "per_100g": {"calories": 120.0, "protein_g": 23.0, "carb_g": 0.0, "fat_g": 2.0},
+        "default_g": 100.0,
+        "confidence": 0.72,
+    },
+    {
+        "keywords": ("茶葉蛋", "滷蛋", "水煮蛋", "雞蛋"),
+        "per_serving": {"calories": 80.0, "protein_g": 7.0, "carb_g": 1.0, "fat_g": 5.0},
+        "serving_g": 60.0,
+        "default_count": 1.0,
+        "confidence": 0.75,
+    },
+    {
+        "keywords": ("高麗菜包子",),
+        "per_serving": {"calories": 200.0, "protein_g": 6.0, "carb_g": 33.0, "fat_g": 5.0},
+        "serving_g": 120.0,
+        "default_count": 1.0,
+        "confidence": 0.58,
+    },
+    {
+        "keywords": ("包子",),
+        "per_serving": {"calories": 180.0, "protein_g": 6.0, "carb_g": 32.0, "fat_g": 4.0},
+        "serving_g": 120.0,
+        "default_count": 1.0,
+        "confidence": 0.52,
+    },
+]
+
+_COUNT_UNIT_GRAMS: List[Tuple[str, float]] = [
+    ("高麗菜包子", 120.0),
+    ("包子", 120.0),
+    ("茶葉蛋", 60.0),
+    ("滷蛋", 60.0),
+    ("水煮蛋", 55.0),
+    ("雞蛋", 55.0),
+    ("雞胸肉", 100.0),
+    ("三明治", 180.0),
+    ("飯糰", 150.0),
+]
+
+_BOWL_UNIT_GRAMS: List[Tuple[str, float]] = [
+    ("飯", 200.0),
+    ("麵", 300.0),
+    ("粥", 250.0),
+    ("湯", 350.0),
+]
+
+_CUP_UNIT_ML: List[Tuple[str, float]] = [
+    ("全脂鮮奶", 240.0),
+    ("鮮奶", 240.0),
+    ("牛奶", 240.0),
+    ("豆漿", 375.0),
+]
+
+_BOTTLE_UNIT_ML: List[Tuple[str, float]] = [
+    ("豆漿", 375.0),
+    ("牛奶", 375.0),
+    ("鮮奶", 375.0),
+]
+
+
+def _lookup_text_meal_profile(food_name: str) -> Optional[Dict[str, Any]]:
+    for profile in _TEXT_MEAL_ESTIMATE_PROFILES:
+        if any(keyword in food_name for keyword in profile["keywords"]):
+            return profile
+    return None
+
+
+def _first_keyword_value(food_name: str, pairs: List[Tuple[str, float]]) -> Optional[float]:
+    for keyword, value in pairs:
+        if keyword in food_name:
+            return value
+    return None
+
+
+def _infer_grams_from_quantity(food_name: str, quantity_value: float, quantity_unit: Optional[str]) -> float:
+    if quantity_value <= 0 or not quantity_unit:
+        return 0.0
+
+    if quantity_unit in {"ml", "l"}:
+        multiplier = 1000.0 if quantity_unit == "l" else 1.0
+        return quantity_value * multiplier
+
+    if quantity_unit in {"個", "顆", "粒", "片", "條"}:
+        unit_grams = _first_keyword_value(food_name, _COUNT_UNIT_GRAMS)
+        if unit_grams is not None:
+            return quantity_value * unit_grams
+
+    if quantity_unit == "碗":
+        unit_grams = _first_keyword_value(food_name, _BOWL_UNIT_GRAMS)
+        if unit_grams is not None:
+            return quantity_value * unit_grams
+        return quantity_value * 250.0
+
+    if quantity_unit == "杯":
+        unit_ml = _first_keyword_value(food_name, _CUP_UNIT_ML)
+        if unit_ml is not None:
+            return quantity_value * unit_ml
+        return quantity_value * 240.0
+
+    if quantity_unit == "瓶":
+        unit_ml = _first_keyword_value(food_name, _BOTTLE_UNIT_ML)
+        if unit_ml is not None:
+            return quantity_value * unit_ml
+        return quantity_value * 375.0
+
+    if quantity_unit == "份":
+        profile = _lookup_text_meal_profile(food_name)
+        if profile and profile.get("serving_g"):
+            return quantity_value * float(profile["serving_g"])
+        return quantity_value * 100.0
+
+    return 0.0
+
+
+def _apply_text_meal_fallback(food: Dict[str, Any]) -> Dict[str, Any]:
+    profile = _lookup_text_meal_profile(str(food.get("name") or ""))
+    if not profile:
+        return food
+
+    estimated_g = float(food.get("estimated_g") or 0.0)
+    quantity_value = float(food.get("quantity_value") or 0.0)
+    quantity_unit = food.get("quantity_unit")
+
+    scale = 0.0
+    if profile.get("per_100ml"):
+        if estimated_g <= 0:
+            if quantity_unit in {"ml", "l"}:
+                estimated_g = _infer_grams_from_quantity(food["name"], quantity_value, quantity_unit)
+            elif profile.get("default_ml"):
+                estimated_g = float(profile["default_ml"])
+        scale = estimated_g / 100.0 if estimated_g > 0 else 0.0
+        nutrition = profile["per_100ml"]
+    elif profile.get("per_100g"):
+        if estimated_g <= 0 and profile.get("default_g"):
+            estimated_g = float(profile["default_g"])
+        scale = estimated_g / 100.0 if estimated_g > 0 else 0.0
+        nutrition = profile["per_100g"]
+    else:
+        serving_count = quantity_value if quantity_value > 0 and quantity_unit in {"個", "顆", "粒", "片", "份", "條"} else 0.0
+        if serving_count <= 0 and estimated_g > 0 and profile.get("serving_g"):
+            serving_count = estimated_g / float(profile["serving_g"])
+        if serving_count <= 0:
+            serving_count = float(profile.get("default_count") or 1.0)
+        if estimated_g <= 0 and profile.get("serving_g"):
+            estimated_g = serving_count * float(profile["serving_g"])
+        scale = serving_count
+        nutrition = profile["per_serving"]
+
+    if scale <= 0:
+        return food
+
+    food.update(
+        {
+            "estimated_g": round(estimated_g, 1),
+            "calories": round(float(nutrition.get("calories") or 0.0) * scale, 1),
+            "protein_g": round(float(nutrition.get("protein_g") or 0.0) * scale, 1),
+            "carb_g": round(float(nutrition.get("carb_g") or 0.0) * scale, 1),
+            "fat_g": round(float(nutrition.get("fat_g") or 0.0) * scale, 1),
+            "food_db_source": "RULE_EST",
+            "confidence": float(profile.get("confidence") or 0.55),
+        }
+    )
+    return food
 
 
 # ── DB-enriched food lookup helper ────────────────────────────────────────
@@ -209,8 +406,10 @@ def _enrich_foods_with_nutrition(
                 }
             )
         else:
-            # Not found — keep original values, mark source
-            food.setdefault("food_db_source", "UNKNOWN")
+            food = _apply_text_meal_fallback(food)
+            if not food.get("calories"):
+                # Not found — keep original values, mark source
+                food.setdefault("food_db_source", "UNKNOWN")
 
         enriched.append(food)
 
@@ -234,6 +433,7 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
         return []
 
     normalized = raw
+    normalized = re.sub(r"^\d{1,2}/\d{1,2}\s*", "", normalized)
     normalized = re.sub(r"[。；;\n]+", "，", normalized)
     normalized = re.sub(r"(還有|再加|另外|以及|還吃了|跟|和|與|及)", "，", normalized)
     normalized = re.sub(r"\bplus\b", "，", normalized, flags=re.IGNORECASE)
@@ -245,7 +445,7 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
         candidate = fragment.strip()
         if not candidate:
             continue
-        candidate, quantity_g = _extract_quantity_grams(candidate)
+        candidate, quantity_g, quantity_value, quantity_unit = _extract_quantity(candidate)
         candidate = _normalize_food_name(candidate)
         if not candidate:
             continue
@@ -254,10 +454,14 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
         if candidate in seen:
             continue
         seen.add(candidate)
+        if quantity_g <= 0:
+            quantity_g = _infer_grams_from_quantity(candidate, quantity_value, quantity_unit)
         foods.append(
             {
                 "name": candidate,
                 "estimated_g": quantity_g,
+                "quantity_value": quantity_value,
+                "quantity_unit": quantity_unit,
                 "food_db_source": "MANUAL",
                 "confidence": 1.0,
             }
@@ -336,7 +540,7 @@ def process_checkin_response(
     )
     active_plan = db.get_active_plan(user_id)
     calorie_target = int(active_plan["daily_calorie_target"] or 0) if active_plan else 0
-    summary_date = date.today().isoformat()
+    summary_date = today_local().isoformat()
     if log_datetime:
         summary_date = datetime.fromisoformat(log_datetime.replace("Z", "+00:00")).date().isoformat()
     summary = upsert_daily_summary(
