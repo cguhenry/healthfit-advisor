@@ -213,7 +213,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 
 # ── quad‑thresholds ──────────────────────────────────────────────────────
 # These define how food_names get classified into quadrants.

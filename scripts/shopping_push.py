@@ -27,7 +27,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from time_utils import today_local
 
-DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB_PATH", Path("~/.healthfit/healthfit.db").expanduser()))
+DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB_PATH", Path("~/.openclaw/data/healthfit.db").expanduser()))
 
 # ─────────────────────────────────────────────────────────────
 # Category emoji mapping
@@ -370,7 +370,7 @@ def cmd_shopping_push(args: argparse.Namespace) -> None:
     db = DBManager(db_path=DEFAULT_DB_PATH)
 
     # resolve user_id from profile
-    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser()))
+    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.openclaw/data/profile.json").expanduser()))
     user_id = ""
     if profile_path.exists():
         with open(profile_path) as f:

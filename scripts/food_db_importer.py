@@ -47,7 +47,7 @@ LEGACY_WARNING = (
 # ─────────────────────────────────────────────────────────────
 
 # Default local storage for assets
-ASSETS_DIR = Path("~/.healthfit/assets").expanduser()
+ASSETS_DIR = Path("~/.openclaw/data/assets").expanduser()
 TW_FOOD_DB_PATH = ASSETS_DIR / "tw_food_db.csv"
 USDA_FOOD_DB_PATH = ASSETS_DIR / "usda_food_db.json"
 
@@ -197,7 +197,7 @@ def main() -> None:
     p_clear = sub.add_parser("clear", help="Clear food cache")
 
     args = parser.parse_args()
-    db = DBManager(Path("~/.healthfit/healthfit.db").expanduser())
+    db = DBManager(Path("~/.openclaw/data/healthfit.db").expanduser())
     db.initialize()
     importer = FoodDBImporter(db)
 

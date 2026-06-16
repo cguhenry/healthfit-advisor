@@ -38,7 +38,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 
-DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB", "~/.healthfit/healthfit.db")).expanduser()
+DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB", "~/.openclaw/data/healthfit.db")).expanduser()
 
 # ─────────────────────────────────────────────────────────────
 # Data models

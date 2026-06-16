@@ -264,7 +264,7 @@ def _run_log_from_checkin(forwarded_args: Sequence[str]) -> int:
     parser.add_argument("--user-id")  # optional — auto-loaded from profile.json if absent
     parser.add_argument("--text", required=True, help="Natural-language user reply, e.g. '雞胸肉、茶葉蛋、無糖豆漿'.")
     parser.add_argument("--meal-type", choices=("breakfast", "lunch", "dinner", "snack"))
-    parser.add_argument("--db-path", default="~/.healthfit/healthfit.db")
+    parser.add_argument("--db-path", default="~/.openclaw/data/healthfit.db")
     parser.add_argument("--log-datetime", help="Optional ISO-8601 timestamp override.")
     parser.add_argument("--note", help="Optional note attached to each inserted row.")
     args = parser.parse_args(list(forwarded_args))
@@ -278,7 +278,7 @@ def _run_log_from_checkin(forwarded_args: Sequence[str]) -> int:
                 args.user_id = profile.get("user_id") or profile.get("user", {}).get("user_id", "")
         if not args.user_id:
             raise ValueError(
-                "Could not determine user_id. Provide --user-id or ensure ~/.healthfit/profile.json "
+                "Could not determine user_id. Provide --user-id or ensure ~/.openclaw/data/profile.json "
                 "contains a top-level 'user_id' field."
             )
 
@@ -391,7 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_log_from_image.add_argument("--user-id", required=True)
     p_log_from_image.add_argument("--meal-type", choices=("breakfast", "lunch", "dinner", "snack"), default="lunch")
     p_log_from_image.add_argument("--scenario", choices=("food", "before_after"), default="food")
-    p_log_from_image.add_argument("--db-path", default="~/.healthfit/healthfit.db")
+    p_log_from_image.add_argument("--db-path", default="~/.openclaw/data/healthfit.db")
     p_log_from_image.add_argument("--log-datetime")
     p_log_from_image.add_argument("--note")
     p_log_from_image.add_argument("--print-analysis", action="store_true")
@@ -410,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_checkin_answer.add_argument("--user-id")  # optional — auto-loaded from profile.json
     p_checkin_answer.add_argument("--text", required=True)
     p_checkin_answer.add_argument("--meal-type", choices=("breakfast", "lunch", "dinner", "snack"))
-    p_checkin_answer.add_argument("--db-path", default="~/.healthfit/healthfit.db")
+    p_checkin_answer.add_argument("--db-path", default="~/.openclaw/data/healthfit.db")
     p_checkin_answer.add_argument("--log-datetime")
     p_checkin_answer.add_argument("--note")
 

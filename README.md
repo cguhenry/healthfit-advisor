@@ -36,8 +36,8 @@ CLI 仍然是重要的備援與除錯入口，但不建議把它當主要人機�
 - `scripts/healthfit.py`：統一 CLI dispatcher
 - `scripts/`：各功能模組
 - `tests/`：單元測試與 smoke test
-- `~/.healthfit/profile.json`：單人 profile 預設路徑
-- `~/.healthfit/healthfit.db`：SQLite DB 預設路徑
+- `~/.openclaw/data/profile.json`：單人 profile 預設路徑
+- `~/.openclaw/data/healthfit.db`：SQLite DB 預設路徑
 
 目前資料層是 SQLite-first 設計。正式支援的是本機 SQLite，不是 PostgreSQL。
 
@@ -45,8 +45,8 @@ CLI 仍然是重要的備援與除錯入口，但不建議把它當主要人機�
 
 如果你什麼都不設，HealthFit 會自動使用：
 
-- Profile：`~/.healthfit/profile.json`
-- DB：`~/.healthfit/healthfit.db`
+- Profile：`~/.openclaw/data/profile.json`
+- DB：`~/.openclaw/data/healthfit.db`
 
 這代表大多數單人使用情境下，你 **不需要手動設定** `HEALTHFIT_PROFILE` 或 `HEALTHFIT_DB_PATH`。
 
@@ -162,14 +162,14 @@ python3 scripts/healthfit.py ...
 建議：
 
 - repo 掛固定路徑
-- `~/.healthfit/` 掛 persistent volume
+- `~/.openclaw/data/` 掛 persistent volume
 - OpenClaw service 啟動時就把 HealthFit 相關 env 帶進去
 
 範例 volume 規劃：
 
 ```text
 /volume1/docker/openclaw/workspace/skills/healthfit-advisor -> repo
-/volume1/docker/openclaw/data/healthfit                    -> ~/.healthfit
+/volume1/docker/openclaw/data/healthfit                    -> ~/.openclaw/data
 ```
 
 ## 環境變數
@@ -317,7 +317,7 @@ python3 scripts/healthfit.py chart --user-id <user_id> --weeks 12
 - Skill 目錄已放對
 - `python3 -m pip install -r requirements.txt` 已完成
 - 若需要 PDF，已額外安裝 `python3 -m pip install -r requirements-pdf.txt` 或 `python3 -m pip install ".[pdf]"`
-- 已完成 intake，`~/.healthfit/profile.json` 與 `~/.healthfit/healthfit.db` 已建立
+- 已完成 intake，`~/.openclaw/data/profile.json` 與 `~/.openclaw/data/healthfit.db` 已建立
 - 若要外部通知，delivery env 已設好
 - 已至少做一次 dry-run smoke test
 - 若要正式發送，已做一次真實 delivery smoke test

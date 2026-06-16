@@ -8,7 +8,7 @@ Usage (CLI):
     python3 scripts/can_i_eat.py "一碗拉麵"
     python3 scripts/can_i_eat.py "珍珠奶茶" --meal dinner
     python3 scripts/can_i_eat.py "兩個便當" --quantity 2
-    python3 scripts/can_i_eat.py "一碗拉麵" --user-id U --db-path ~/.healthfit/healthfit.db --json
+    python3 scripts/can_i_eat.py "一碗拉麵" --user-id U --db-path ~/.openclaw/data/healthfit.db --json
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from food_db_lookup import FoodDBLookup, SearchResult
 from food_preference_engine import get_food_fingerprint
 from data_quality import estimate_nutrition_quality, MatchMethod  # noqa: PLC0415
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 
 # ─────────────────────────────────────────────────────────────────────────
 # Result dataclass

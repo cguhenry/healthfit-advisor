@@ -555,7 +555,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    db_path = Path(os.environ.get("HEALTHFIT_DB", "~/.healthfit/healthfit.db")).expanduser()
+    db_path = Path(os.environ.get("HEALTHFIT_DB", "~/.openclaw/data/healthfit.db")).expanduser()
     db = DBManager(db_path=db_path)
     db.initialize()
 

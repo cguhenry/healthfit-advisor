@@ -34,7 +34,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 
 # ─────────────────────────────────────────────────────────────
 # MET Values (Compendium of Physical Activities)
@@ -431,7 +431,7 @@ def _get_db_and_user():
         sys.exit(1)
     db = DBManager(db_path=str(db_path))
 
-    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser()))
+    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.openclaw/data/profile.json").expanduser()))
     if not profile_path.exists():
         print("No profile found.", file=sys.stderr)
         sys.exit(1)
@@ -447,7 +447,7 @@ def cmd_log(args: argparse.Namespace) -> None:
 
     weight_kg = 70.0  # fallback
     profile_path = Path(
-        os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser())
+        os.environ.get("HEALTHFIT_PROFILE", Path("~/.openclaw/data/profile.json").expanduser())
     )
     if profile_path.exists():
         with open(profile_path) as f:

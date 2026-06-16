@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_PROFILE_PATH = Path("~/.healthfit/profile.json").expanduser()
+DEFAULT_PROFILE_PATH = Path("~/.openclaw/data/profile.json").expanduser()
 
 @dataclass
 class UserProfile:

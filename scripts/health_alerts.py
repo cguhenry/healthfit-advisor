@@ -36,7 +36,7 @@ from db_manager import DBManager
 from bwp_calculator import BWPCalculator
 from bwp_dynamic_solver import build_plan_from_profile as build_dynamic_plan_from_profile
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 
 # ─────────────────────────────────────────────────────────────
 # Alert types and severities
@@ -741,7 +741,7 @@ def _get_db_and_user():
         sys.exit(1)
     db = DBManager(db_path=db_path)
 
-    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.healthfit/profile.json").expanduser()))
+    profile_path = Path(os.environ.get("HEALTHFIT_PROFILE", Path("~/.openclaw/data/profile.json").expanduser()))
     if not profile_path.exists():
         print("No profile found.", file=sys.stderr)
         sys.exit(1)

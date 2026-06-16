@@ -259,8 +259,8 @@ triggers:
     - "血糖"
 
 environment:
-  HEALTHFIT_DB_PATH: "~/.healthfit/healthfit.db"
-  HEALTHFIT_PROFILE: "~/.healthfit/profile.json"
+  HEALTHFIT_DB_PATH: "~/.openclaw/data/healthfit.db"
+  HEALTHFIT_PROFILE: "~/.openclaw/data/profile.json"
   HEALTHFIT_GI_MODEL: ""
   HEALTHFIT_GI_API_KEY: ""
   HEALTHFIT_GI_API_URL: "https://api.openai.com/v1/chat/completions"

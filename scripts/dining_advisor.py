@@ -95,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description="外食情境推薦")
     parser.add_argument("--user-id", help="使用者 ID，用於從 DB 讀取今日狀態")
-    parser.add_argument("--db-path", default="~/.healthfit/healthfit.db", help="SQLite DB path")
+    parser.add_argument("--db-path", default="~/.openclaw/data/healthfit.db", help="SQLite DB path")
     parser.add_argument("--date", help="指定日期，格式 YYYY-MM-DD；預設今天")
     parser.add_argument(
         "--scene",

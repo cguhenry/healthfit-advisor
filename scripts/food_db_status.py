@@ -23,7 +23,7 @@ from db_manager import DBManager
 
 
 def main() -> int:
-    db_path = os.environ.get("HEALTHFIT_DB", "~/.healthfit/healthfit.db")
+    db_path = os.environ.get("HEALTHFIT_DB", "~/.openclaw/data/healthfit.db")
     db = DBManager(Path(db_path).expanduser())
     db.initialize()
 

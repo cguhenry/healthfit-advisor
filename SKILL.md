@@ -21,7 +21,7 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
    - 熱量/巨量營養素快速估算
    - 外食或菜單建議
    - 後續 phase 的規劃或擴充
-2. 若是首次使用，先建立或讀取本機單人設定檔 `~/.healthfit/profile.json`。
+2. 若是首次使用，先建立或讀取本機單人設定檔 `~/.openclaw/data/profile.json`。
 3. 若需要完整 Phase 1 intake，優先使用 `scripts/intake_flow.py`：
    - 驗證必要欄位
    - 建立或更新 profile
@@ -185,7 +185,7 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
   - `DISCORD_WEBHOOK_URL`
   - `LINE_CHANNEL_ACCESS_TOKEN`
   - `LINE_REPORT_TARGET`
-  - optional `HEALTHFIT_CHANNELS`, `HEALTHFIT_DRY_RUN`, `HEALTHFIT_DB_PATH`, `HEALTHFIT_PROFILE`, `HEALTHFIT_TIMEZONE`
+  - optional `HEALTHFIT_CHANNELS`, `HEALTHFIT_DRY_RUN`, `HEALTHFIT_DB_PATH=~/.openclaw/data/healthfit.db`, `HEALTHFIT_PROFILE=~/.openclaw/data/profile.json`, `HEALTHFIT_TIMEZONE`
 - Scheduling/report date resolution follows `HEALTHFIT_TIMEZONE` (IANA name, default `Asia/Taipei`). Override it on UTC hosts only when you want a different local date/week boundary.
 - Missing notification credentials should fail explicitly at delivery time; the Phase 7 smoke test does not exercise external delivery.
 

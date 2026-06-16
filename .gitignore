@@ -14,7 +14,7 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
-.healthfit/
+.openclaw/data/
 data/
 @eaDir/
 **/@eaDir/

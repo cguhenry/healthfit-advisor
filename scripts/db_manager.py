@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 from typing import Iterable, Iterator, Mapping, Optional
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 DEFAULT_SCHEMA_PATH = Path(__file__).resolve().with_name("db_schema.sql")
 SCHEMA_VERSION = 1
 

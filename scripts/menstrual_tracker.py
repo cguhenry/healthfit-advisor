@@ -38,7 +38,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 
 # ─────────────────────────────────────────────────────────────
 # Cycle phase constants
@@ -262,7 +262,7 @@ def _get_db_and_user():
     db = DBManager(db_path=db_path)
 
     profile_path = Path(os.environ.get("HEALTHFIT_PROFILE",
-                                       Path("~/.healthfit/profile.json").expanduser()))
+                                       Path("~/.openclaw/data/profile.json").expanduser()))
     if not profile_path.exists():
         print("No profile found.", file=sys.stderr)
         sys.exit(1)

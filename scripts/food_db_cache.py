@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 
 from food_db_lookup import FoodDBLookup
 
-DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB", "~/.healthfit/healthfit.db")).expanduser()
+DEFAULT_DB_PATH = Path(os.environ.get("HEALTHFIT_DB", "~/.openclaw/data/healthfit.db")).expanduser()
 HOT_TTL_SECONDS = 60 * 60
 COLD_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_MAX_ENTRIES = 512

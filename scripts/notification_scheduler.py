@@ -13,8 +13,8 @@ Usage (standalone):
     python3 scripts/notification_scheduler.py setup-cron
 
 Environment variables:
-    HEALTHFIT_DB_PATH   — SQLite DB path (default: ~/.healthfit/healthfit.db)
-    HEALTHFIT_PROFILE   — Profile JSON path (default: ~/.healthfit/profile.json)
+    HEALTHFIT_DB_PATH   — SQLite DB path (default: ~/.openclaw/data/healthfit.db)
+    HEALTHFIT_PROFILE   — Profile JSON path (default: ~/.openclaw/data/profile.json)
     HEALTHFIT_DRY_RUN   — If set, print report instead of sending
     HEALTHFIT_CHANNELS  — Comma-separated channels: discord,line (default: discord)
     HEALTHFIT_TIMEZONE  — IANA timezone for local date/week resolution
@@ -41,8 +41,8 @@ from scripts.calorie_tracker import get_calorie_progress, get_history_comparison
 from scripts.time_utils import get_healthfit_timezone_name, today_local
 
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
-DEFAULT_PROFILE_PATH = Path("~/.healthfit/profile.json").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
+DEFAULT_PROFILE_PATH = Path("~/.openclaw/data/profile.json").expanduser()
 DEFAULT_OPENCLAW_CONFIG_PATH = Path("/home/node/.openclaw/openclaw.json")
 CRON_LINE = (
     "# HealthFit AI — lunch check-in at 13:00\n"

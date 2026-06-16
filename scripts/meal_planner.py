@@ -37,7 +37,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-DEFAULT_DB_PATH = Path("~/.healthfit/healthfit.db").expanduser()
+DEFAULT_DB_PATH = Path("~/.openclaw/data/healthfit.db").expanduser()
 DEFAULT_MEAL_PLAN_API_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MEAL_PLAN_TIMEOUT_SECONDS = 30
 MEAL_PLAN_LLM_MAX_RETRIES = 2
@@ -1024,7 +1024,7 @@ def cmd_plan(args: argparse.Namespace) -> None:
             db = DBManager(db_path=db_path)
 
             profile_path = Path(os.environ.get("HEALTHFIT_PROFILE",
-                                               Path("~/.healthfit/profile.json").expanduser()))
+                                               Path("~/.openclaw/data/profile.json").expanduser()))
             if profile_path.exists():
                 with open(profile_path) as f:
                     profile = json.load(f)
