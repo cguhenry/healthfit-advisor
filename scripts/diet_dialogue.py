@@ -192,6 +192,13 @@ _TEXT_MEAL_ESTIMATE_PROFILES: List[Dict[str, Any]] = [
         "confidence": 0.72,
     },
     {
+        "keywords": ("肉粽", "粽子"),
+        "per_serving": {"calories": 305.0, "protein_g": 8.0, "carb_g": 43.0, "fat_g": 9.0},
+        "serving_g": 200.0,
+        "default_count": 1.0,
+        "confidence": 0.66,
+    },
+    {
         "keywords": ("雞胸肉",),
         "per_100g": {"calories": 120.0, "protein_g": 23.0, "carb_g": 0.0, "fat_g": 2.0},
         "default_g": 100.0,
@@ -383,6 +390,7 @@ def _enrich_foods_with_nutrition(
     for food in foods:
         name = food.get("name") or ""
         quantity_g = food.get("estimated_g") or 0.0
+        quantity_specified = bool(food.get("quantity_specified"))
 
         # 1) Try cache first
         hit_list: List[Any] = cache.search(name.strip(), top=1, min_score=0.30)
@@ -394,9 +402,12 @@ def _enrich_foods_with_nutrition(
             hit = fallback[0].item if fallback else None
 
         if hit:
+            if quantity_g <= 0:
+                quantity_g = float(getattr(hit, "serving_size_g", 100.0) or 100.0)
             ratio = quantity_g / 100.0 if quantity_g > 0 else 1.0
             food.update(
                 {
+                    "estimated_g": round(quantity_g, 1),
                     "calories": round((hit.calories_100g or 0) * ratio, 1),
                     "protein_g": round((hit.protein_100g or 0) * ratio, 1),
                     "carb_g": round((hit.carb_100g or 0) * ratio, 1),
@@ -410,6 +421,11 @@ def _enrich_foods_with_nutrition(
             if not food.get("calories"):
                 # Not found — keep original values, mark source
                 food.setdefault("food_db_source", "UNKNOWN")
+
+        if not quantity_specified and float(food.get("estimated_g") or 0.0) > 0:
+            food["estimate_note"] = (
+                f"未提供份量，已先以一般份量估算（{float(food['estimated_g']):.0f}g）"
+            )
 
         enriched.append(food)
 
@@ -456,12 +472,14 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
         seen.add(candidate)
         if quantity_g <= 0:
             quantity_g = _infer_grams_from_quantity(candidate, quantity_value, quantity_unit)
+        quantity_specified = quantity_value > 0 or quantity_unit is not None
         foods.append(
             {
                 "name": candidate,
                 "estimated_g": quantity_g,
                 "quantity_value": quantity_value,
                 "quantity_unit": quantity_unit,
+                "quantity_specified": quantity_specified,
                 "food_db_source": "MANUAL",
                 "confidence": 1.0,
             }
@@ -529,6 +547,11 @@ def process_checkin_response(
     # --- B1 fix: enrich foods with nutrition from DB before logging ---
     db = DBManager(Path(db_path))
     foods = _enrich_foods_with_nutrition(foods, db)
+    warnings: List[str] = []
+    for food in foods:
+        estimate_note = str(food.get("estimate_note") or "").strip()
+        if estimate_note:
+            warnings.append(f"{food['name']}: {estimate_note}")
 
     inserted = log_meal_manual(
         db,
@@ -564,6 +587,7 @@ def process_checkin_response(
             "calorie_target": summary.calorie_target,
             "calorie_balance": summary.calorie_balance,
         },
+        **({"warnings": warnings} if warnings else {}),
     }
 
 

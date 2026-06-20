@@ -209,6 +209,44 @@ class TestDialogueFlow(unittest.TestCase):
         finally:
             os.unlink(tmp_db.name)
 
+    def test_process_checkin_response_estimates_default_portion_for_item_only_text(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "肉粽",
+                user_id="u1",
+                meal_type="lunch",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "logged")
+            self.assertEqual(result["foods"][0]["estimated_g"], 200.0)
+            self.assertEqual(result["foods"][0]["calories"], 305.0)
+            self.assertIn("warnings", result)
+            self.assertTrue(any("未提供份量" in warning for warning in result["warnings"]))
+
+            row = db.fetch_one(
+                "SELECT quantity_g, calories, protein_g, carb_g, fat_g FROM food_logs WHERE user_id = ?",
+                ("u1",),
+            )
+            self.assertEqual(row["quantity_g"], 200.0)
+            self.assertEqual(row["calories"], 305.0)
+        finally:
+            os.unlink(tmp_db.name)
+
     def test_process_checkin_response_requests_foods_when_missing(self):
         """When no foods are parseable AND the reply is not a deliberate skip, ask for clarification."""
         tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
