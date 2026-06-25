@@ -216,6 +216,13 @@ description: 提供健康減重、增肌、維持體重的技能化工作流程�
 - 遇到 `requires_professional_review=true` 時，不要把自動熱量目標包裝成醫療建議；輸出需明確建議專業評估。
 - Phase 2 menu advice 要明確標示為估算，並提供避免項目與替代選項。
 
+## Runtime Guard
+
+- 在 direct session 或任何 agent turn 開始前，先確認當前 runtime 真的有 `exec`。
+- 如果沒有 `exec`，不要再嘗試 shell / CLI 呼叫，也不要重試舊名稱 `exec_command`。
+- 改用 `sessions_spawn` 把工作委派給 isolated 子代理或其他有 shell 的 worker；如果委派也不可用，就直接回覆 Henry 一句簡短說明，不要讓回合卡在工具錯配。
+- 這條規則優先於所有 `checkin answer`、`image prompt`、`report`、`dining` 流程，用來避免同類型的「工具不存在」錯誤再次出現。
+
 ## Intent Triggers
 
 以下意圖觸發對應的模組：

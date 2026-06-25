@@ -5,7 +5,7 @@ display_name: "HealthFit Advisor"
 description: "健康減重、增肌、維持體重與飲食追蹤技能。"
 entrypoint: "python3 scripts/healthfit.py"
 default_action: "intake"
-default_prompt: "Use HealthFit Advisor to intake profile data, track meals, generate reports, and provide GI-aware diet guidance."
+default_prompt: "Use HealthFit Advisor to intake profile data, track meals, generate reports, and provide GI-aware diet guidance. If the current runtime does not expose `exec`, delegate any CLI work to a shell-capable subagent instead of attempting shell commands directly."
 
 capabilities:
   - intake

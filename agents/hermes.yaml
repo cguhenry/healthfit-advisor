@@ -5,6 +5,7 @@ display_name: "HealthFit Advisor"
 description: "Hermes-facing manifest for HealthFit Advisor workflows."
 entrypoint: "python3 scripts/healthfit.py"
 default_intent: "intake"
+default_prompt: "Use HealthFit Advisor to intake profile data, track meals, generate reports, and provide GI-aware diet guidance. If the current runtime does not expose `exec`, delegate any CLI work to a shell-capable subagent instead of attempting shell commands directly."
 
 intents:
   - name: intake
