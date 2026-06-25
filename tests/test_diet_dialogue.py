@@ -134,6 +134,12 @@ class TestDialogueFlow(unittest.TestCase):
         self.assertEqual(foods[1]["estimated_g"], 120.0)
         self.assertEqual(foods[1]["quantity_unit"], "個")
 
+    def test_extract_foods_from_text_ignores_photo_markers(self):
+        foods = extract_foods_from_text("6/25午餐，如照片，牛肉丼飯一碗")
+        self.assertEqual([food["name"] for food in foods], ["牛肉丼飯"])
+        self.assertEqual(foods[0]["estimated_g"], 450.0)
+        self.assertEqual(foods[0]["quantity_unit"], "碗")
+
     def test_process_checkin_response_logs_manual_meal(self):
         tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         tmp_db.close()
@@ -244,6 +250,44 @@ class TestDialogueFlow(unittest.TestCase):
             )
             self.assertEqual(row["quantity_g"], 200.0)
             self.assertEqual(row["calories"], 305.0)
+        finally:
+            os.unlink(tmp_db.name)
+
+    def test_process_checkin_response_estimates_photo_style_meal_text(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db.close()
+        try:
+            db = DBManager(Path(tmp_db.name), fast_mode=True)
+            db.initialize()
+            db.upsert_user_profile(
+                {
+                    "user_id": "u1",
+                    "display_name": "Test",
+                    "gender": "M",
+                    "age": 30,
+                    "height_cm": 175,
+                }
+            )
+
+            result = process_checkin_response(
+                "6/25晚餐，如照片，鴨肉飯便當，白飯，荷包蛋，醃小黃瓜",
+                user_id="u1",
+                meal_type="dinner",
+                db_path=tmp_db.name,
+            )
+
+            self.assertEqual(result["status"], "logged")
+            self.assertEqual(result["logged_rows"], 4)
+            self.assertGreater(result["summary"]["total_calories"], 700.0)
+            rows = db.fetchall(
+                "SELECT food_name, calories, food_db_source FROM food_logs WHERE user_id = ? ORDER BY rowid",
+                ("u1",),
+            )
+            self.assertEqual(rows[0]["food_name"], "鴨肉飯便當")
+            self.assertEqual(rows[0]["food_db_source"], "RULE_EST")
+            self.assertEqual(rows[1]["food_name"], "白飯")
+            self.assertEqual(rows[2]["food_name"], "荷包蛋")
+            self.assertEqual(rows[3]["food_name"], "醃小黃瓜")
         finally:
             os.unlink(tmp_db.name)
 

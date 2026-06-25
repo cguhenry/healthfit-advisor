@@ -146,15 +146,31 @@ def _match(options: list[str], raw: str) -> Optional[str]:
 
 
 def _extract_quantity(fragment: str) -> tuple[str, float, float, str | None]:
+    cn_number_map = {
+        "半": 0.5,
+        "一": 1.0,
+        "二": 2.0,
+        "兩": 2.0,
+        "两": 2.0,
+        "三": 3.0,
+        "四": 4.0,
+        "五": 5.0,
+        "六": 6.0,
+        "七": 7.0,
+        "八": 8.0,
+        "九": 9.0,
+        "十": 10.0,
+    }
     match = re.search(
-        r"(\d+(?:\.\d+)?)\s*(g|克|kg|公斤|ml|mL|cc|c\.c\.|毫升|l|L|公升|個|顆|粒|片|碗|杯|瓶|份|條)",
+        r"(\d+(?:\.\d+)?|半|一|二|兩|两|三|四|五|六|七|八|九|十)\s*(g|克|kg|公斤|ml|mL|cc|c\.c\.|毫升|l|L|公升|個|顆|粒|片|碗|杯|瓶|份|條)",
         fragment,
         flags=re.IGNORECASE,
     )
     if not match:
         return fragment, 0.0, 0.0, None
 
-    raw_value = float(match.group(1))
+    raw_number = match.group(1)
+    raw_value = cn_number_map[raw_number] if raw_number in cn_number_map else float(raw_number)
     raw_unit = match.group(2).lower()
     cleaned = (fragment[:match.start()] + fragment[match.end():]).strip()
 
@@ -179,6 +195,48 @@ def _normalize_food_name(fragment: str) -> str:
 
 
 _TEXT_MEAL_ESTIMATE_PROFILES: List[Dict[str, Any]] = [
+    {
+        "keywords": ("牛肉丼飯", "牛丼"),
+        "per_serving": {"calories": 720.0, "protein_g": 26.0, "carb_g": 95.0, "fat_g": 24.0},
+        "serving_g": 450.0,
+        "default_count": 1.0,
+        "confidence": 0.62,
+    },
+    {
+        "keywords": ("鴨肉飯便當", "鴨肉便當"),
+        "per_serving": {"calories": 420.0, "protein_g": 24.0, "carb_g": 18.0, "fat_g": 28.0},
+        "serving_g": 220.0,
+        "default_count": 1.0,
+        "confidence": 0.58,
+    },
+    {
+        "keywords": ("白飯", "米飯", "飯"),
+        "per_serving": {"calories": 280.0, "protein_g": 4.0, "carb_g": 62.0, "fat_g": 0.4},
+        "serving_g": 200.0,
+        "default_count": 1.0,
+        "confidence": 0.72,
+    },
+    {
+        "keywords": ("清湯",),
+        "per_serving": {"calories": 30.0, "protein_g": 1.0, "carb_g": 4.0, "fat_g": 0.5},
+        "serving_g": 300.0,
+        "default_count": 1.0,
+        "confidence": 0.68,
+    },
+    {
+        "keywords": ("荷包蛋",),
+        "per_serving": {"calories": 90.0, "protein_g": 6.0, "carb_g": 1.0, "fat_g": 7.0},
+        "serving_g": 55.0,
+        "default_count": 1.0,
+        "confidence": 0.78,
+    },
+    {
+        "keywords": ("醃小黃瓜", "小黃瓜"),
+        "per_serving": {"calories": 20.0, "protein_g": 1.0, "carb_g": 4.0, "fat_g": 0.0},
+        "serving_g": 50.0,
+        "default_count": 1.0,
+        "confidence": 0.7,
+    },
     {
         "keywords": ("全脂鮮奶", "鮮奶", "牛奶"),
         "per_100ml": {"calories": 61.0, "protein_g": 3.2, "carb_g": 4.8, "fat_g": 3.3},
@@ -228,8 +286,12 @@ _TEXT_MEAL_ESTIMATE_PROFILES: List[Dict[str, Any]] = [
 ]
 
 _COUNT_UNIT_GRAMS: List[Tuple[str, float]] = [
+    ("牛肉丼飯", 450.0),
+    ("鴨肉飯便當", 220.0),
+    ("鴨肉便當", 220.0),
     ("高麗菜包子", 120.0),
     ("包子", 120.0),
+    ("荷包蛋", 55.0),
     ("茶葉蛋", 60.0),
     ("滷蛋", 60.0),
     ("水煮蛋", 55.0),
@@ -240,6 +302,9 @@ _COUNT_UNIT_GRAMS: List[Tuple[str, float]] = [
 ]
 
 _BOWL_UNIT_GRAMS: List[Tuple[str, float]] = [
+    ("牛肉丼飯", 450.0),
+    ("清湯", 300.0),
+    ("白飯", 200.0),
     ("飯", 200.0),
     ("麵", 300.0),
     ("粥", 250.0),
@@ -450,6 +515,8 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
 
     normalized = raw
     normalized = re.sub(r"^\d{1,2}/\d{1,2}\s*", "", normalized)
+    normalized = re.sub(r"^(早餐|午餐|晚餐|點心|宵夜|消夜)\s*", "", normalized)
+    normalized = re.sub(r"(如照片|如圖|看照片|看圖|照片中?|圖中?)", "，", normalized)
     normalized = re.sub(r"[。；;\n]+", "，", normalized)
     normalized = re.sub(r"(還有|再加|另外|以及|還吃了|跟|和|與|及)", "，", normalized)
     normalized = re.sub(r"\bplus\b", "，", normalized, flags=re.IGNORECASE)
@@ -464,6 +531,8 @@ def extract_foods_from_text(answer_text: str) -> List[Dict[str, Any]]:
         candidate, quantity_g, quantity_value, quantity_unit = _extract_quantity(candidate)
         candidate = _normalize_food_name(candidate)
         if not candidate:
+            continue
+        if candidate in {"如照片", "如圖", "照片", "看圖", "看照片"}:
             continue
         if candidate in {"都沒有", "沒有", "沒", "無"}:
             continue
