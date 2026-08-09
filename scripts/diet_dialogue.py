@@ -244,6 +244,13 @@ _TEXT_MEAL_ESTIMATE_PROFILES: List[Dict[str, Any]] = [
         "confidence": 0.78,
     },
     {
+        "keywords": ("肉鬆麵包",),
+        "per_serving": {"calories": 540.0, "protein_g": 15.0, "carb_g": 67.5, "fat_g": 22.5},
+        "serving_g": 150.0,
+        "default_count": 1.0,
+        "confidence": 0.58,
+    },
+    {
         "keywords": ("無糖豆漿", "豆漿"),
         "per_100ml": {"calories": 42.7, "protein_g": 3.2, "carb_g": 2.1, "fat_g": 2.1},
         "default_ml": 375.0,
