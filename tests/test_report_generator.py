@@ -17,6 +17,7 @@ from report_generator import (
     generate_daily_report, generate_weekly_report, _get_week_weight_change,
 )
 from db_manager import DBManager
+from time_utils import today_local
 
 
 class TestDailyReport(unittest.TestCase):
@@ -100,9 +101,9 @@ class TestDailyReport(unittest.TestCase):
         self.assertIn("分", report)
 
     def test_daily_report_includes_comparison(self):
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = today_local() - timedelta(days=1)
         self._log_food(calories=500, meal_type="dinner", log_date=yesterday)
-        today = date.today()
+        today = today_local()
         self._log_food(calories=700, meal_type="lunch", log_date=today)
 
         report = generate_daily_report(self.db, self.user_id)
@@ -143,7 +144,7 @@ class TestWeeklyReport(unittest.TestCase):
 
     def _log_food(self, calories=500, protein_g=20, meal_type="lunch", day=0):
         from calorie_tracker import log_meal_analysis
-        d = date.today() - timedelta(days=day)
+        d = today_local() - timedelta(days=day)
         ts = d.isoformat() + "T12:00:00+00:00"
         log_meal_analysis(
             self.db, self.user_id, meal_type,
@@ -166,9 +167,15 @@ class TestWeeklyReport(unittest.TestCase):
 
     def test_generate_weekly_report_empty(self):
         """Should not crash with no data."""
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIsInstance(report, str)
+
+    def test_weekly_report_accepts_date_object(self):
+        """Notification callers may pass a date object, not only ISO text."""
+        monday = today_local() - timedelta(days=today_local().weekday())
+        report = generate_weekly_report(self.db, self.user_id, week_start_date=monday)
+        self.assertIn(monday.isoformat(), report)
         self.assertGreater(len(report), 50)
 
     def test_generate_weekly_report_with_data(self):
@@ -177,7 +184,7 @@ class TestWeeklyReport(unittest.TestCase):
             self._log_food(calories=600 + day * 100, meal_type="dinner", day=day)
             self._log_food(calories=500, meal_type="lunch", day=day)
 
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIn("每週", report)
         self.assertIn("評分", report)
@@ -187,12 +194,12 @@ class TestWeeklyReport(unittest.TestCase):
         for day in range(3):
             self._log_food(calories=500, meal_type="lunch", day=day)
 
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIn("每日評分平均", report)
 
     def test_weekly_report_with_weight(self):
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         self._log_weight(80.0, monday)
         self._log_weight(79.5, monday + timedelta(days=5))
 
@@ -215,7 +222,7 @@ class TestWeeklyReport(unittest.TestCase):
         for day in range(3):
             self._log_food(calories=500, meal_type="lunch", day=day)
 
-        monday = (date.today() - timedelta(days=date.today().weekday())).isoformat()
+        monday = (today_local() - timedelta(days=today_local().weekday())).isoformat()
         generate_weekly_report(self.db, self.user_id, week_start_date=monday)
         # Should have created weekly_summaries row
         row = self.db.fetch_one(
@@ -225,7 +232,7 @@ class TestWeeklyReport(unittest.TestCase):
         self.assertIsNotNone(row)
 
     def test_weekly_report_footer(self):
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIn("HealthFit Advisor", report)
 
@@ -233,13 +240,13 @@ class TestWeeklyReport(unittest.TestCase):
         for day in range(5):
             self._log_food(calories=500 + day * 100, meal_type="lunch", day=day)
 
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIn("kcal", report)
 
     def test_weekly_report_with_explicit_json(self):
         """Test that JSON output option works via direct call signature."""
-        monday = date.today() - timedelta(days=date.today().weekday())
+        monday = today_local() - timedelta(days=today_local().weekday())
         report = generate_weekly_report(self.db, self.user_id, week_start_date=monday.isoformat())
         self.assertIsInstance(report, str)
 
@@ -256,7 +263,7 @@ class TestWeeklyReport(unittest.TestCase):
     def test_multiple_meals_progress_section(self):
         """Report should show per-meal breakdown."""
         from calorie_tracker import log_meal_analysis
-        today = date.today()
+        today = today_local()
         ts = today.isoformat() + "T08:00:00+00:00"
         log_meal_analysis(
             self.db, self.user_id, "breakfast",
@@ -281,7 +288,7 @@ class TestWeeklyReport(unittest.TestCase):
     def test_daily_report_shows_real_item_counts(self):
         from calorie_tracker import log_meal_analysis
 
-        today = date.today().isoformat()
+        today = today_local().isoformat()
         log_meal_analysis(
             self.db,
             self.user_id,

@@ -25,6 +25,7 @@ if str(_SCRIPT_DIR) not in sys.path:
 
 from db_manager import DBManager
 from calorie_tracker import get_calorie_progress, get_history_comparison, get_recent_trend
+from time_utils import today_local
 from scoring_engine import (
     DailyNutrition, DailyScore, WeeklyScore, ScoreEvent,
     get_daily_nutrition, score_daily, score_weekly,
@@ -39,7 +40,7 @@ from scoring_engine import (
 def generate_daily_report(
     db: DBManager,
     user_id: str,
-    report_date: Optional[str] = None,
+    report_date: Optional[str | date] = None,
 ) -> str:
     """
     Generate a full daily health report.
@@ -60,7 +61,11 @@ def generate_daily_report(
         Formatted text report (traditional Chinese).
     """
     db.initialize()
-    rd = report_date or date.today().isoformat()
+    rd = (
+        report_date.isoformat()
+        if isinstance(report_date, date)
+        else report_date
+    ) or today_local().isoformat()
 
     # ── Get active plan ──────────────────────────────────────────────
     plan = db.get_active_plan(user_id)
@@ -78,7 +83,7 @@ def generate_daily_report(
     daily_score = run_daily_scoring(db, user_id, rd)
 
     # ── History comparison ───────────────────────────────────────────
-    comps = get_history_comparison(db, user_id, today=date.fromisoformat(rd) if rd else date.today())
+    comps = get_history_comparison(db, user_id, today=date.fromisoformat(rd))
 
     # ── Build report ─────────────────────────────────────────────────
     lines: List[str] = []
@@ -137,7 +142,7 @@ def generate_daily_report(
 def generate_weekly_report(
     db: DBManager,
     user_id: str,
-    week_start_date: Optional[str] = None,
+    week_start_date: Optional[str | date] = None,
 ) -> str:
     """
     Generate a full weekly health report.
@@ -162,9 +167,13 @@ def generate_weekly_report(
     db.initialize()
 
     # ── Determine week range ─────────────────────────────────────────
-    today = date.today()
+    today = today_local()
     if week_start_date:
-        ws_date = date.fromisoformat(week_start_date)
+        ws_date = (
+            week_start_date
+            if isinstance(week_start_date, date)
+            else date.fromisoformat(week_start_date)
+        )
     else:
         # Current week's Monday
         ws_date = today - timedelta(days=today.weekday())
@@ -601,7 +610,7 @@ def main() -> None:
     # ── daily ───────────────────────────────────────────────────────
     daily_parser = sub.add_parser("daily", help="Generate daily report")
     daily_parser.add_argument("--user-id", required=True)
-    daily_parser.add_argument("--date", default=date.today().isoformat())
+    daily_parser.add_argument("--date", default=today_local().isoformat())
     daily_parser.add_argument("--db-path", default=str(DBManager.DEFAULT_DB_PATH))
     daily_parser.add_argument("--json", action="store_true", help="Output structured JSON")
 
